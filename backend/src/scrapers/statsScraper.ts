@@ -44,24 +44,29 @@ export async function scrapeStats(rankFilter: string = 'all'): Promise<HeroStats
     const allText = parentText + ' ' + $(el).closest('li, div, tr').text().trim();
 
     // Extract stats from surrounding text
-    const winRateMatch = allText.match(/(\d+\.?\d*)%\s*(?:WR|Win|win)/i)
-      || allText.match(/WR\s*(\d+\.?\d*)%/i)
-      || allText.match(/(\d+\.?\d*)%/);
-    const pickRateMatch = allText.match(/(\d+\.?\d*)%\s*(?:PR|Pick|pick)/i)
-      || allText.match(/PR\s*(\d+\.?\d*)%/i);
-    const banRateMatch = allText.match(/(\d+\.?\d*)%\s*(?:ban|Ban)/i)
-      || allText.match(/ban\s*(?:rate)?\s*(\d+\.?\d*)%/i);
+    // The new layout has strings like "55.71%—0.12%0.55%" (WR, PR, BR)
+    const percentages = [...allText.matchAll(/([\d.]+)%/g)].map((m) => parseFloat(m[1]!));
+    
+    let winRate = 50.0;
+    let pickRate = 0;
+    let banRate = 0;
 
-    const winRate = winRateMatch ? parseFloat(winRateMatch[1]!) : 50.0;
-    const pickRate = pickRateMatch ? parseFloat(pickRateMatch[1]!) : 0;
-    const banRate = banRateMatch ? parseFloat(banRateMatch[1]!) : 0;
+    if (percentages.length >= 3) {
+      // Typically WR, PR, BR
+      winRate = percentages[0]!;
+      pickRate = percentages[1]!;
+      banRate = percentages[2]!;
+    } else if (percentages.length > 0) {
+      winRate = percentages[0]!;
+      if (percentages.length === 2) pickRate = percentages[1]!;
+    }
 
     // Skip if this looks like a nav link (no meaningful data)
-    if (name.length < 2 || name.includes('Browse') || name.includes('Find')) return;
+    if (name.length < 2 || name.includes('Browse') || name.includes('Find') || name.includes('Gem') || name.includes('Star') || name.includes('Off')) return;
 
-    // Clean hero name — remove common suffixes
+    // Clean hero name — remove common suffixes and random text
     const cleanName = name
-      .replace(/(?:Fighter|Mage|Marksman|Assassin|Tank|Support).*$/i, '')
+      .replace(/(?:Fighter|Mage|Marksman|Assassin|Tank|Support|Roamer|EXP Lane|Gold Lane|Mid Lane|Jungler).*$/i, '')
       .replace(/\d+\.?\d*%.*$/, '')
       .trim();
 

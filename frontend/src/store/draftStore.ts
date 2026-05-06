@@ -66,6 +66,7 @@ interface DraftState {
   historyIndex: number; // For undo/redo — points to last applied action
   mode: 'ranked' | 'custom' | 'manual';
   activeTargetId: string | null;
+  previewHero: Hero | null;
 
   // Derived
   getSlot: (id: string) => DraftSlot | undefined;
@@ -85,6 +86,7 @@ interface DraftState {
   reset: () => void;
   setMode: (mode: 'ranked' | 'custom' | 'manual') => void;
   setActiveTarget: (id: string | null) => void;
+  setPreviewHero: (hero: Hero | null) => void;
 }
 
 export const useDraftStore = create<DraftState>((set, get) => ({
@@ -95,8 +97,10 @@ export const useDraftStore = create<DraftState>((set, get) => ({
   historyIndex: -1,
   mode: 'ranked',
   activeTargetId: null,
+  previewHero: null,
 
   setActiveTarget: (id) => set({ activeTargetId: id }),
+  setPreviewHero: (hero) => set({ previewHero: hero }),
 
   getSlot: (id) => get().slots.find((s) => s.id === id),
 
@@ -168,16 +172,23 @@ export const useDraftStore = create<DraftState>((set, get) => ({
     const newHistory = [...state.history.slice(0, state.historyIndex + 1), action];
 
     // Auto-advance draft step in ranked/custom mode
-    let nextStep = state.currentStepIndex;
-    if (state.mode !== 'manual') {
-      nextStep = state.currentStepIndex + 1;
+    // Find the earliest empty slot based on draft order
+    let nextStep = state.draftOrder.length;
+    for (let i = 0; i < state.draftOrder.length; i++) {
+      const step = state.draftOrder[i]!;
+      const stepSlotId = `${step.team}-${step.type}-${step.slotIndex}`;
+      const s = newSlots.find((x) => x.id === stepSlotId);
+      if (s && !s.hero) {
+        nextStep = i;
+        break;
+      }
     }
 
     set({
       slots: newSlots,
       history: newHistory,
       historyIndex: newHistory.length - 1,
-      currentStepIndex: nextStep,
+      currentStepIndex: state.mode !== 'manual' ? nextStep : state.currentStepIndex,
     });
   },
 
@@ -202,10 +213,23 @@ export const useDraftStore = create<DraftState>((set, get) => ({
 
     const newHistory = [...state.history.slice(0, state.historyIndex + 1), action];
 
+    // Find the earliest empty slot based on draft order
+    let nextStep = state.draftOrder.length;
+    for (let i = 0; i < state.draftOrder.length; i++) {
+      const step = state.draftOrder[i]!;
+      const stepSlotId = `${step.team}-${step.type}-${step.slotIndex}`;
+      const s = newSlots.find((x) => x.id === stepSlotId);
+      if (s && !s.hero) {
+        nextStep = i;
+        break;
+      }
+    }
+
     set({
       slots: newSlots,
       history: newHistory,
       historyIndex: newHistory.length - 1,
+      currentStepIndex: state.mode !== 'manual' ? nextStep : state.currentStepIndex,
     });
   },
 

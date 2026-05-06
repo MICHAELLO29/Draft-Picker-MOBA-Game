@@ -4,19 +4,20 @@ import { useCounters } from '../../hooks/useApi';
 import { useDraftStore } from '../../store/draftStore';
 import { detectSynergies, detectCompWarnings, detectThreats } from '../../utils/synergyRules';
 import type { CounterPick } from '../../types';
-import { getHeroImageUrl } from '../../utils/imageUtils';
+import { useHeroImage } from '../../utils/imageUtils';
 
 /** Counter pick card */
 function CounterCard({ counter }: { counter: CounterPick }) {
   const [imgError, setImgError] = useState(false);
+  const heroImageUrl = useHeroImage(counter.heroName);
   const wrClass = counter.matchupWinRate >= 52 ? 'wr-high' : counter.matchupWinRate >= 48 ? 'wr-mid' : 'wr-low';
 
   return (
     <div className="glass-panel p-3 flex gap-3 items-start animate-fade-in">
       <div className="relative w-10 h-10 min-w-[40px] rounded overflow-hidden bg-navy-600">
-        {!imgError ? (
+        {heroImageUrl && !imgError ? (
           <img
-            src={getHeroImageUrl(counter.heroName)}
+            src={heroImageUrl}
             alt={counter.heroName}
             className="w-full h-full object-cover"
             onError={() => setImgError(true)}
@@ -45,7 +46,7 @@ function CounterCard({ counter }: { counter: CounterPick }) {
           ))}
         </div>
         {counter.description && (
-          <p className="text-[0.65rem] text-steel-400 mt-1.5 line-clamp-2">
+          <p className="text-xs text-steel-400 mt-2 leading-relaxed">
             {counter.description}
           </p>
         )}
@@ -131,7 +132,15 @@ export default function CounterPanel() {
           </p>
         )}
 
-        {filteredCounters.length > 0 && (
+        {activeSlot?.type === 'ban' && activeHero ? (
+          <div className="flex flex-col items-center justify-center py-6 text-center space-y-2">
+            <AlertTriangle className="w-6 h-6 text-red-400 opacity-80" />
+            <p className="text-sm font-semibold text-white">Hero is Banned</p>
+            <p className="text-xs text-steel-500">
+              {activeHero.name} is removed from the draft.<br/>Counters are not applicable.
+            </p>
+          </div>
+        ) : filteredCounters.length > 0 && (
           <div className="space-y-2">
             <p className="text-[0.65rem] text-steel-500">
               vs {activeHero?.name}

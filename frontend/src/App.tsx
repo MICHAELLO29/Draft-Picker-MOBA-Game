@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   DndContext,
   PointerSensor,
@@ -15,10 +15,12 @@ import { Swords, BookOpen, RefreshCw } from 'lucide-react';
 import HeroGrid from './components/DraftPicker/HeroGrid';
 import DraftBoard from './components/DraftPicker/DraftBoard';
 import CounterPanel from './components/CounterPanel/CounterPanel';
+import HeroPreviewModal from './components/DraftPicker/HeroPreviewModal';
 import StrategyBoard from './components/StrategyBoard/StrategyBoard';
 import { useHeroes } from './hooks/useApi';
 import { useDraftStore } from './store/draftStore';
 import type { Hero } from './types';
+import { useImageStore } from './store/imageStore';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -76,6 +78,24 @@ function AppHeader({
   );
 }
 
+/** Drag overlay showing hero portrait */
+function DragOverlayContent({ hero }: { hero: Hero }) {
+  const imageUrl = useImageStore((s) => s.images[hero.name]);
+
+  return (
+    <div className="hero-card p-2 w-24 shadow-2xl ring-2 ring-gold-400">
+      {imageUrl ? (
+        <img src={imageUrl} alt={hero.name} className="w-12 h-12 rounded object-cover mx-auto mb-1" />
+      ) : (
+        <div className="hero-portrait-placeholder text-lg mb-1">
+          {hero.name.charAt(0)}
+        </div>
+      )}
+      <p className="text-xs font-semibold text-white truncate">{hero.name}</p>
+    </div>
+  );
+}
+
 /** Main draft view with DnD */
 function DraftView({ setActiveTab }: { setActiveTab: (tab: TabId) => void }) {
   const { data: heroesData, isLoading, error } = useHeroes();
@@ -84,6 +104,14 @@ function DraftView({ setActiveTab }: { setActiveTab: (tab: TabId) => void }) {
 
   const heroes = heroesData?.data ?? [];
   const isStale = heroesData?.meta?.isStale ?? false;
+
+  // Batch-fetch hero portrait URLs from Fandom API when hero data arrives
+  const fetchImages = useImageStore((s) => s.fetchImages);
+  useEffect(() => {
+    if (heroes.length > 0) {
+      fetchImages(heroes.map((h) => h.name));
+    }
+  }, [heroes, fetchImages]);
 
   // DnD sensors
   const pointerSensor = useSensor(PointerSensor, {
@@ -165,14 +193,12 @@ function DraftView({ setActiveTab }: { setActiveTab: (tab: TabId) => void }) {
       {/* Drag overlay */}
       <DragOverlay>
         {activeHero && (
-          <div className="hero-card p-2 w-24 shadow-2xl ring-2 ring-gold-400">
-            <div className="hero-portrait-placeholder text-lg mb-1">
-              {activeHero.name.charAt(0)}
-            </div>
-            <p className="text-xs font-semibold text-white truncate">{activeHero.name}</p>
-          </div>
+          <DragOverlayContent hero={activeHero} />
         )}
       </DragOverlay>
+
+      {/* Hero Preview Modal */}
+      <HeroPreviewModal />
     </DndContext>
   );
 }

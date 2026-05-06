@@ -1,8 +1,7 @@
 import { cacheManager } from '../cache/cacheManager.js';
 import { scrapeHeroes } from '../scrapers/heroScraper.js';
-import { scrapeCounters } from '../scrapers/counterScraper.js';
-import { scrapeStats } from '../scrapers/statsScraper.js';
 import { scrapeTierList } from '../scrapers/tierScraper.js';
+import { aggregateStats, aggregateCounters } from './dataAggregator.js';
 import type { Hero, CounterPick, HeroStats, TierEntry } from '../types/hero.js';
 import type { ApiEnvelope } from '../types/api.js';
 import config from '../config/index.js';
@@ -45,8 +44,26 @@ export async function getHeroes(): Promise<ApiEnvelope<Hero[]>> {
   try {
     const startTime = Date.now();
     const heroes = await scrapeHeroes();
+    
+    // Enrich heroes with stats
+    try {
+      const stats = await aggregateStats('all');
+      const statsMap = new Map(stats.map((s) => [s.heroSlug, s]));
+      
+      for (const hero of heroes) {
+        const heroStats = statsMap.get(hero.slug);
+        if (heroStats) {
+          hero.winRate = heroStats.winRate;
+          hero.pickRate = heroStats.pickRate;
+          hero.banRate = heroStats.banRate;
+        }
+      }
+    } catch (e) {
+      logger.warn('Failed to enrich heroes with aggregated stats, continuing with base data', e);
+    }
+
     const duration = Date.now() - startTime;
-    logger.info({ cacheKey, duration, heroCount: heroes.length }, 'Scraped heroes');
+    logger.info({ cacheKey, duration, heroCount: heroes.length }, 'Scraped and enriched heroes');
 
     await cacheManager.set(cacheKey, heroes, source);
     return envelope(heroes, source, 'miss', new Date().toISOString(), false);
@@ -76,9 +93,9 @@ export async function getCounters(heroSlug: string): Promise<ApiEnvelope<Counter
 
   try {
     const startTime = Date.now();
-    const counters = await scrapeCounters(heroSlug);
+    const counters = await aggregateCounters(heroSlug);
     const duration = Date.now() - startTime;
-    logger.info({ cacheKey, duration, counterCount: counters.length }, 'Scraped counters');
+    logger.info({ cacheKey, duration, counterCount: counters.length }, 'Aggregated counters');
 
     await cacheManager.set(cacheKey, counters, source);
     return envelope(counters, source, 'miss', new Date().toISOString(), false);
@@ -105,7 +122,7 @@ export async function getStats(rankFilter: string = 'all'): Promise<ApiEnvelope<
   }
 
   try {
-    const stats = await scrapeStats(rankFilter);
+    const stats = await aggregateStats(rankFilter);
     await cacheManager.set(cacheKey, stats, source);
     return envelope(stats, source, 'miss', new Date().toISOString(), false);
   } catch (error) {

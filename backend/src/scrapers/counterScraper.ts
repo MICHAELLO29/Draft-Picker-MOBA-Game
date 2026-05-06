@@ -71,16 +71,23 @@ export async function scrapeCounters(heroSlug: string): Promise<CounterPick[]> {
     if (!linkText || linkText.length < 2) return;
 
     // Get the surrounding text for context (description and win rate)
+    // The win rate is often higher up in the DOM structure
     const parent = $(el).parent();
-    const siblingText = parent.text().trim();
+    const blockText = parent.parent().parent().text().trim(); // Go up a few levels to capture the whole block
 
     // Extract win rate percentage from nearby text
-    const winRateMatch = siblingText.match(/([\d.]+)%/);
+    // We look for patterns like "51.6%+" or "51.6%-"
+    const winRateMatch = blockText.match(/([\d.]+)%[+-]/);
     const winRate = winRateMatch ? parseFloat(winRateMatch[1]!) : 50.0;
 
-    // Look for description text
-    const nextText = parent.next().text().trim();
-    const description = nextText.length > 10 ? nextText : siblingText;
+    // Look for description text (usually ends before "EarlyMidLate" or percentage)
+    let description = '';
+    const descMatch = blockText.match(/(?:Assassin|Fighter|Mage|Marksman|Support|Tank)(.*?)(?:Early|Mid|Late|[\d.]+%)/);
+    if (descMatch && descMatch[1] && descMatch[1].length > 10) {
+      description = descMatch[1].trim();
+    } else {
+      description = blockText.replace(/^.*?#\d+[A-Za-z]+/, '').substring(0, 100);
+    }
 
     // Avoid duplicates
     if (counterLinks.some((c) => c.slug === counterSlug)) return;

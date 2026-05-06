@@ -1,9 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import { X } from 'lucide-react';
 import type { DraftSlot as DraftSlotType } from '../../types';
 import { useDraftStore } from '../../store/draftStore';
-import { getHeroImageUrl } from '../../utils/imageUtils';
+import { useHeroImage } from '../../utils/imageUtils';
 
 interface Props {
   slot: DraftSlotType;
@@ -15,6 +15,10 @@ export default function DraftSlot({ slot, isActive }: Props) {
   const clearSlot = useDraftStore((s) => s.clearSlot);
   const activeTargetId = useDraftStore((s) => s.activeTargetId);
   const setActiveTarget = useDraftStore((s) => s.setActiveTarget);
+  const heroImageUrl = useHeroImage(slot.hero?.name ?? '');
+
+  // Reset imgError when the hero in this slot changes
+  useEffect(() => { setImgError(false); }, [slot.hero?.name]);
   
   const { setNodeRef, isOver } = useDroppable({
     id: slot.id,
@@ -40,9 +44,9 @@ export default function DraftSlot({ slot, isActive }: Props) {
     >
       {slot.hero ? (
         <div className="relative w-full h-full animate-scale-in group">
-          {!imgError ? (
+          {heroImageUrl && !imgError ? (
             <img
-              src={getHeroImageUrl(slot.hero.name)}
+              src={heroImageUrl}
               alt={slot.hero.name}
               className="w-full h-full object-cover"
               onError={() => setImgError(true)}

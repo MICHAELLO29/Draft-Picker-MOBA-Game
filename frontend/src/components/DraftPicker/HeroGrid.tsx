@@ -3,12 +3,13 @@ import { useDraggable } from '@dnd-kit/core';
 import { Search } from 'lucide-react';
 import type { Hero } from '../../types';
 import { useDraftStore } from '../../store/draftStore';
-import { getHeroImageUrl } from '../../utils/imageUtils';
+import { useHeroImage } from '../../utils/imageUtils';
 
 /** Single draggable hero card */
 function HeroCard({ hero, isDimmed }: { hero: Hero; isDimmed: boolean }) {
   const [imgError, setImgError] = useState(false);
-  const assignHero = useDraftStore((s) => s.assignHero);
+  const heroImageUrl = useHeroImage(hero.name);
+  const setPreviewHero = useDraftStore((s) => s.setPreviewHero);
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: `hero-${hero.slug}`,
     data: { hero },
@@ -31,11 +32,11 @@ function HeroCard({ hero, isDimmed }: { hero: Hero; isDimmed: boolean }) {
       {...listeners}
       style={style}
       className={`hero-card flex flex-col items-center justify-center p-2 min-h-[110px] w-full ${isDimmed ? 'dimmed' : ''} ${isDragging ? 'opacity-60' : ''}`}
-      onClick={() => !isDimmed && assignHero(hero)}
+      onClick={() => !isDimmed && setPreviewHero(hero)}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
-          if (!isDimmed) assignHero(hero);
+          if (!isDimmed) setPreviewHero(hero);
         }
       }}
       role="button"
@@ -45,12 +46,13 @@ function HeroCard({ hero, isDimmed }: { hero: Hero; isDimmed: boolean }) {
       id={`hero-card-${hero.slug}`}
     >
       {/* Hero portrait image */}
-      {!imgError ? (
+      {heroImageUrl && !imgError ? (
         <img
-          src={getHeroImageUrl(hero.name)}
+          src={heroImageUrl}
           alt={hero.name}
           className="w-12 h-12 rounded object-cover border border-slate-700 bg-navy-600 mb-1"
           onError={() => setImgError(true)}
+          loading="lazy"
         />
       ) : (
         <div className="w-12 h-12 rounded bg-navy-600 flex items-center justify-center text-lg font-bold text-gold-500 mb-1">
