@@ -2,7 +2,8 @@ import { cacheManager } from '../cache/cacheManager.js';
 import { scrapeHeroes } from '../scrapers/heroScraper.js';
 import { scrapeTierList } from '../scrapers/tierScraper.js';
 import { aggregateStats, aggregateCounters } from './dataAggregator.js';
-import type { Hero, CounterPick, HeroStats, TierEntry } from '../types/hero.js';
+import type { Hero, HeroStats, TierEntry } from '../types/hero.js';
+import type { CounterResult } from '../scrapers/counterScraper.js';
 import type { ApiEnvelope } from '../types/api.js';
 import config from '../config/index.js';
 import pino from 'pino';
@@ -59,7 +60,7 @@ export async function getHeroes(): Promise<ApiEnvelope<Hero[]>> {
         }
       }
     } catch (e) {
-      logger.warn('Failed to enrich heroes with aggregated stats, continuing with base data', e);
+      logger.warn({ err: e }, 'Failed to enrich heroes with aggregated stats, continuing with base data');
     }
 
     const duration = Date.now() - startTime;
@@ -80,12 +81,12 @@ export async function getHeroes(): Promise<ApiEnvelope<Hero[]>> {
   }
 }
 
-/** Get counter picks for a specific hero */
-export async function getCounters(heroSlug: string): Promise<ApiEnvelope<CounterPick[]>> {
+/** Get counter picks for a specific hero (both directions) */
+export async function getCounters(heroSlug: string): Promise<ApiEnvelope<CounterResult>> {
   const cacheKey = `counter_${heroSlug}`;
   const source = `${config.mlbbhubBaseUrl}/counter/${heroSlug}`;
 
-  const cached = await cacheManager.get<CounterPick[]>(cacheKey);
+  const cached = await cacheManager.get<CounterResult>(cacheKey);
   if (cached?.isFresh) {
     logger.info({ cacheKey, status: 'hit' }, 'Cache hit for counters');
     return envelope(cached.data, source, 'hit', new Date(cached.timestamp).toISOString(), false);
@@ -93,12 +94,12 @@ export async function getCounters(heroSlug: string): Promise<ApiEnvelope<Counter
 
   try {
     const startTime = Date.now();
-    const counters = await aggregateCounters(heroSlug);
+    const counterResult = await aggregateCounters(heroSlug);
     const duration = Date.now() - startTime;
-    logger.info({ cacheKey, duration, counterCount: counters.length }, 'Aggregated counters');
+    logger.info({ cacheKey, duration, strongCount: counterResult.strongAgainst.length, weakCount: counterResult.weakAgainst.length }, 'Aggregated counters');
 
-    await cacheManager.set(cacheKey, counters, source);
-    return envelope(counters, source, 'miss', new Date().toISOString(), false);
+    await cacheManager.set(cacheKey, counterResult, source);
+    return envelope(counterResult, source, 'miss', new Date().toISOString(), false);
   } catch (error) {
     logger.error({ cacheKey, error }, 'Scrape failed for counters');
 
@@ -106,8 +107,8 @@ export async function getCounters(heroSlug: string): Promise<ApiEnvelope<Counter
       return envelope(cached.data, source, 'stale', new Date(cached.timestamp).toISOString(), true);
     }
 
-    // Return empty array instead of crashing — the draft UI must remain functional
-    return envelope([], source, 'stale', new Date().toISOString(), true);
+    // Return empty result instead of crashing
+    return envelope({ strongAgainst: [], weakAgainst: [] }, source, 'stale', new Date().toISOString(), true);
   }
 }
 

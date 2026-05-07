@@ -1,4 +1,4 @@
-import type { Hero, CounterPick, ApiEnvelope } from '../types';
+import type { Hero, CounterResult, ApiEnvelope } from '../types';
 
 const API_BASE = '/api';
 
@@ -9,8 +9,8 @@ export async function fetchHeroes(): Promise<ApiEnvelope<Hero[]>> {
   return res.json();
 }
 
-/** Fetch counter picks for a hero */
-export async function fetchCounters(heroSlug: string): Promise<ApiEnvelope<CounterPick[]>> {
+/** Fetch counter picks for a hero (both directions) */
+export async function fetchCounters(heroSlug: string): Promise<ApiEnvelope<CounterResult>> {
   const res = await fetch(`${API_BASE}/counter/${heroSlug}`);
   if (!res.ok) throw new Error(`Failed to fetch counters: ${res.status}`);
   return res.json();

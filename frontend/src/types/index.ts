@@ -24,6 +24,12 @@ export interface CounterPick {
   sourceUrl: string;
 }
 
+/** Counter result with both directions */
+export interface CounterResult {
+  strongAgainst: CounterPick[];
+  weakAgainst: CounterPick[];
+}
+
 /** API envelope from backend */
 export interface ApiEnvelope<T> {
   data: T;

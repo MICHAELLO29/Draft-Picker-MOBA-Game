@@ -53,7 +53,11 @@ export default function HeroPreviewModal() {
 
   // Fetch counters for the previewed hero
   const { data: counterData, isLoading: countersLoading } = useCounters(previewHero?.slug ?? null);
-  const counters = counterData?.data ?? [];
+  
+  // In the preview modal:
+  // - Ban phase: show strongAgainst (heroes that beat this hero — reason to ban it)
+  // - Pick phase: show strongAgainst (heroes that beat this hero — threats to be aware of)
+  const counters = counterData?.data?.strongAgainst ?? [];
 
   // Close on Escape
   useEffect(() => {

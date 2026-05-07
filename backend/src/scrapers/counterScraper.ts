@@ -1,18 +1,30 @@
 import * as cheerio from 'cheerio';
 import type { CounterPick } from '../types/hero.js';
-import { CounterPickArraySchema } from '../schemas/index.js';
 import { fetchHtml } from '../utils/fetch.js';
 import config from '../config/index.js';
 
 /**
+ * Result containing both counter directions:
+ * - strongAgainst: heroes that BEAT the target hero (pick these to counter them)
+ * - weakAgainst: heroes the target hero BEATS (these are weak vs the target)
+ */
+export type CounterResult = {
+  strongAgainst: CounterPick[];
+  weakAgainst: CounterPick[];
+};
+
+/**
  * Scrape counter picks for a specific hero from MLBBHub.
  *
- * The counter page shows:
- * - "How to Counter {Hero}" section with top counters
- * - Each counter has: name, win rate, win rate delta, description
- * - Phase strength tags derived from description text
+ * The counter page has two sections:
+ * 1. "How to Counter {Hero}" — heroes that beat the target (strongAgainst)
+ * 2. "Heroes {Hero} Counters" — heroes the target beats (weakAgainst)
+ *
+ * We differentiate by the win rate delta sign:
+ * - Entries with "%+" delta → strongAgainst (they beat X)
+ * - Entries without "+" delta → weakAgainst (X beats them)
  */
-export async function scrapeCounters(heroSlug: string): Promise<CounterPick[]> {
+export async function scrapeCounters(heroSlug: string): Promise<CounterResult> {
   const url = `${config.mlbbhubBaseUrl}/counter/${heroSlug}`;
   const html = await fetchHtml(url);
   if (!html) {
@@ -20,121 +32,114 @@ export async function scrapeCounters(heroSlug: string): Promise<CounterPick[]> {
   }
 
   const $ = cheerio.load(html);
-  const counters: CounterPick[] = [];
   const timestamp = new Date().toISOString();
 
-  // The counter page has sections with counter hero links and stats.
-  // Parse the "How to Counter" section — links to /counter/{slug} with win rate data.
-  // The structure has counter hero links followed by description and win rate text.
-
-  const mainContent = $('main, #main-content, [role="main"], body');
-  const fullText = mainContent.text();
-
-  // Strategy: find all /counter/ links within the main content area,
-  // then extract the adjacent text for win rates and descriptions.
-  // We need to be selective — only the first section (counters FOR the hero, not BY the hero).
-
-  const counterSection = $('h2:contains("How to Counter")').first();
-  let sectionEl = counterSection.length > 0
-    ? counterSection.parent()
-    : mainContent;
-
-  // Find counter links — these are <a> tags linking to /counter/{slug}
+  // Collect all counter links with their metadata
   const counterLinks: Array<{
     name: string;
     slug: string;
     description: string;
     winRate: number;
+    hasPositiveDelta: boolean;
   }> = [];
 
-  // Parse text blocks that contain counter info
-  // From the scraped content, pattern is:
-  // [HeroName](link)
-  // Description text
-  // WinRate%
-  // "win rate delta"
-
-  const textBlocks = fullText.split(/\n+/);
-  let currentSection = '';
-
-  // Use link-based parsing as primary approach
   $('a[href*="/counter/"]').each((_i, el) => {
     const href = $(el).attr('href') ?? '';
     const linkSlugMatch = href.match(/\/counter\/([a-z0-9-]+)$/);
     if (!linkSlugMatch) return;
 
     const counterSlug = linkSlugMatch[1]!;
-    // Skip self-reference and navigation links
     if (counterSlug === heroSlug) return;
 
     const linkText = $(el).text().trim();
     if (!linkText || linkText.length < 2) return;
 
-    // Get the surrounding text for context (description and win rate)
-    // The win rate is often higher up in the DOM structure
+    // Avoid duplicates
+    if (counterLinks.some((c) => c.slug === counterSlug)) return;
+
     const parent = $(el).parent();
-    const blockText = parent.parent().parent().text().trim(); // Go up a few levels to capture the whole block
+    const blockText = parent.parent().parent().text().trim();
 
-    // Extract win rate percentage from nearby text
-    // We look for patterns like "51.6%+" or "51.6%-"
+    // Check if this entry has a positive delta sign (%+)
+    // "strongAgainst" entries have patterns like "51.6%+2.5%win rate delta"
+    // "weakAgainst" entries have patterns like "55.8%3.0%win rate delta" (no + sign)
+    const hasPositiveDelta = /[\d.]+%\+/.test(blockText);
+
+    // Extract win rate
     const winRateMatch = blockText.match(/([\d.]+)%[+-]/);
-    const winRate = winRateMatch ? parseFloat(winRateMatch[1]!) : 50.0;
+    const winRateAlt = blockText.match(/([\d.]+)%/);
+    const winRate = winRateMatch
+      ? parseFloat(winRateMatch[1]!)
+      : winRateAlt
+        ? parseFloat(winRateAlt[1]!)
+        : 50.0;
 
-    // Look for description text (usually ends before "EarlyMidLate" or percentage)
+    // Extract description
     let description = '';
-    const descMatch = blockText.match(/(?:Assassin|Fighter|Mage|Marksman|Support|Tank)(.*?)(?:Early|Mid|Late|[\d.]+%)/);
+    const descMatch = blockText.match(
+      /(?:Assassin|Fighter|Mage|Marksman|Support|Tank)(.*?)(?:Early|Mid|Late|[\d.]+%)/
+    );
     if (descMatch && descMatch[1] && descMatch[1].length > 10) {
       description = descMatch[1].trim();
     } else {
-      description = blockText.replace(/^.*?#\d+[A-Za-z]+/, '').substring(0, 100);
+      description = blockText.replace(/^.*?#\d+[A-Za-z]+/, '').substring(0, 150);
     }
-
-    // Avoid duplicates
-    if (counterLinks.some((c) => c.slug === counterSlug)) return;
 
     counterLinks.push({
       name: linkText,
       slug: counterSlug,
       description,
       winRate,
+      hasPositiveDelta,
     });
   });
 
-  // Take the first 5 entries as counter picks (the "How to Counter" section)
-  const topCounters = counterLinks.slice(0, 5);
+  // Split into two groups based on delta sign
+  const strongRaw = counterLinks.filter((c) => c.hasPositiveDelta);
+  const weakRaw = counterLinks.filter((c) => !c.hasPositiveDelta);
 
-  for (const counter of topCounters) {
-    // Determine phase strengths from description text
-    const phaseStrengths = extractPhaseStrengths(counter.description);
+  // If the delta-based split didn't work (all same), fall back to positional split
+  // First half = strongAgainst, second half = weakAgainst
+  let strongList = strongRaw;
+  let weakList = weakRaw;
+  if (strongRaw.length === 0 && weakRaw.length > 5) {
+    strongList = counterLinks.slice(0, 5);
+    weakList = counterLinks.slice(5, 10);
+  } else if (weakRaw.length === 0 && strongRaw.length > 5) {
+    strongList = counterLinks.slice(0, 5);
+    weakList = counterLinks.slice(5, 10);
+  }
 
-    counters.push({
+  // Convert to CounterPick format
+  function toCounterPicks(entries: typeof counterLinks): CounterPick[] {
+    const picks: CounterPick[] = entries.slice(0, 5).map((counter) => ({
       heroName: counter.name,
       heroSlug: counter.slug,
       portraitUrl: `${config.mlbbhubBaseUrl}/heroes/${counter.slug}`,
       matchupWinRate: counter.winRate,
-      winRateDelta: counter.winRate - 50, // Delta from average
-      phaseStrengths,
+      winRateDelta: counter.winRate - 50,
+      phaseStrengths: extractPhaseStrengths(counter.description),
       description: counter.description || undefined,
       scrapeTimestamp: timestamp,
       sourceUrl: url,
-    });
+    }));
+
+    picks.sort((a, b) => b.matchupWinRate - a.matchupWinRate);
+    return picks;
   }
 
-  // Sort by win rate descending
-  counters.sort((a, b) => b.matchupWinRate - a.matchupWinRate);
+  return {
+    strongAgainst: toCounterPicks(strongList),
+    weakAgainst: toCounterPicks(weakList),
+  };
+}
 
-  // Validate
-  const result = CounterPickArraySchema.safeParse(counters);
-  if (result.success) {
-    return result.data;
-  }
-
-  // Return raw if validation fails but we have data
-  if (counters.length > 0) {
-    return counters;
-  }
-
-  return [];
+/**
+ * Legacy wrapper: returns only the "strongAgainst" list for backward compatibility.
+ */
+export async function scrapeCountersLegacy(heroSlug: string): Promise<CounterPick[]> {
+  const result = await scrapeCounters(heroSlug);
+  return result.strongAgainst;
 }
 
 /** Extract phase strength tags from description text */
@@ -152,7 +157,6 @@ function extractPhaseStrengths(text: string): ('Early' | 'Mid' | 'Late')[] {
     strengths.push('Late');
   }
 
-  // Default to Mid if no phase detected
   if (strengths.length === 0) {
     strengths.push('Mid');
   }

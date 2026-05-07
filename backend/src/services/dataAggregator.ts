@@ -1,7 +1,7 @@
-import { scrapeHeroes as scrapeMlbbHubHeroes } from '../scrapers/heroScraper.js';
 import { scrapeStats as scrapeMlbbHubStats } from '../scrapers/statsScraper.js';
 import { scrapeCounters as scrapeMlbbHubCounters } from '../scrapers/counterScraper.js';
-import type { Hero, HeroStats, CounterPick } from '../types/hero.js';
+import type { CounterResult } from '../scrapers/counterScraper.js';
+import type { HeroStats, CounterPick } from '../types/hero.js';
 import pino from 'pino';
 import config from '../config/index.js';
 
@@ -63,46 +63,46 @@ export async function aggregateStats(rankFilter: string = 'all'): Promise<HeroSt
 }
 
 /**
- * Aggregates counter picks from multiple sources, combining the top counters
- * across all tier lists.
+ * Aggregates counter picks from multiple sources, returning both directions.
  */
-export async function aggregateCounters(heroSlug: string): Promise<CounterPick[]> {
+export async function aggregateCounters(heroSlug: string): Promise<CounterResult> {
   const sources = [
     { name: 'MLBBHub', fn: () => scrapeMlbbHubCounters(heroSlug) }
   ];
 
   const results = await Promise.allSettled(sources.map((s) => s.fn()));
   
-  const allCounters: CounterPick[] = [];
+  const allStrong: CounterPick[] = [];
+  const allWeak: CounterPick[] = [];
+  
   results.forEach((res) => {
     if (res.status === 'fulfilled') {
-      allCounters.push(...res.value);
+      allStrong.push(...res.value.strongAgainst);
+      allWeak.push(...res.value.weakAgainst);
     }
   });
 
-  if (allCounters.length === 0) {
-    return [];
-  }
-
-  // Deduplicate and merge counters from multiple sources
-  const mergedMap = new Map<string, CounterPick>();
-  for (const counter of allCounters) {
-    const existing = mergedMap.get(counter.heroSlug);
-    if (!existing) {
-      mergedMap.set(counter.heroSlug, counter);
-    } else {
-      // If found in multiple sources, it's a stronger counter — average their win rates
-      existing.matchupWinRate = (existing.matchupWinRate + counter.matchupWinRate) / 2;
-      existing.winRateDelta = (existing.winRateDelta + counter.winRateDelta) / 2;
-      
-      // Merge phase strengths (union)
-      const combinedPhases = new Set([...existing.phaseStrengths, ...counter.phaseStrengths]);
-      existing.phaseStrengths = Array.from(combinedPhases) as ('Early' | 'Mid' | 'Late')[];
+  // Deduplicate and sort
+  function dedup(list: CounterPick[]): CounterPick[] {
+    const map = new Map<string, CounterPick>();
+    for (const counter of list) {
+      const existing = map.get(counter.heroSlug);
+      if (!existing) {
+        map.set(counter.heroSlug, counter);
+      } else {
+        existing.matchupWinRate = (existing.matchupWinRate + counter.matchupWinRate) / 2;
+        existing.winRateDelta = (existing.winRateDelta + counter.winRateDelta) / 2;
+        const combinedPhases = new Set([...existing.phaseStrengths, ...counter.phaseStrengths]);
+        existing.phaseStrengths = Array.from(combinedPhases) as ('Early' | 'Mid' | 'Late')[];
+      }
     }
+    const merged = Array.from(map.values());
+    merged.sort((a, b) => b.matchupWinRate - a.matchupWinRate);
+    return merged;
   }
 
-  // Return sorted by new average winrate
-  const merged = Array.from(mergedMap.values());
-  merged.sort((a, b) => b.matchupWinRate - a.matchupWinRate);
-  return merged;
+  return {
+    strongAgainst: dedup(allStrong),
+    weakAgainst: dedup(allWeak),
+  };
 }
