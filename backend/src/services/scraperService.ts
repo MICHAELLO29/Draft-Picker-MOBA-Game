@@ -1,6 +1,8 @@
 import { cacheManager } from '../cache/cacheManager.js';
 import { scrapeHeroes } from '../scrapers/heroScraper.js';
 import { scrapeTierList } from '../scrapers/tierScraper.js';
+import { scrapeProMeta } from '../scrapers/proMetaScraper.js';
+import type { ProMetaData } from '../scrapers/proMetaScraper.js';
 import { aggregateStats, aggregateCounters } from './dataAggregator.js';
 import type { Hero, HeroStats, TierEntry } from '../types/hero.js';
 import type { CounterResult } from '../scrapers/counterScraper.js';
@@ -162,6 +164,36 @@ export async function getTierList(): Promise<ApiEnvelope<TierEntry[]>> {
   }
 }
 
+/** Get pro meta data from MPL PH */
+export async function getProMeta(): Promise<ApiEnvelope<ProMetaData>> {
+  const cacheKey = 'pro_meta';
+  const source = 'https://ph-mpl.com/data';
+
+  const cached = await cacheManager.get<ProMetaData>(cacheKey);
+  if (cached?.isFresh) {
+    logger.info({ cacheKey, status: 'hit' }, 'Cache hit for pro meta');
+    return envelope(cached.data, source, 'hit', new Date(cached.timestamp).toISOString(), false);
+  }
+
+  try {
+    const startTime = Date.now();
+    const proMeta = await scrapeProMeta();
+    const duration = Date.now() - startTime;
+    logger.info({ cacheKey, duration, picks: proMeta.topPicks.length, bans: proMeta.topBans.length }, 'Scraped pro meta');
+
+    await cacheManager.set(cacheKey, proMeta, source);
+    return envelope(proMeta, source, 'miss', new Date().toISOString(), false);
+  } catch (error) {
+    logger.error({ cacheKey, error }, 'Scrape failed for pro meta');
+
+    if (cached) {
+      return envelope(cached.data, source, 'stale', new Date(cached.timestamp).toISOString(), true);
+    }
+
+    return envelope({ topPicks: [], topBans: [], topWinRates: [], scrapeTimestamp: new Date().toISOString(), source }, source, 'stale', new Date().toISOString(), true);
+  }
+}
+
 /** Force refresh all caches */
 export async function refreshAll(): Promise<{ success: boolean; errors: string[] }> {
   const errors: string[] = [];
@@ -176,6 +208,7 @@ export async function refreshAll(): Promise<{ success: boolean; errors: string[]
     getHeroes().catch((e: Error) => { errors.push(`Heroes: ${e.message}`); }),
     getTierList().catch((e: Error) => { errors.push(`TierList: ${e.message}`); }),
     getStats('all').catch((e: Error) => { errors.push(`Stats: ${e.message}`); }),
+    getProMeta().catch((e: Error) => { errors.push(`ProMeta: ${e.message}`); }),
   ];
 
   await Promise.allSettled(tasks);

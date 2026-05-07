@@ -15,6 +15,8 @@ export default function DraftSlot({ slot, isActive }: Props) {
   const clearSlot = useDraftStore((s) => s.clearSlot);
   const activeTargetId = useDraftStore((s) => s.activeTargetId);
   const setActiveTarget = useDraftStore((s) => s.setActiveTarget);
+  const setAnalysisHero = useDraftStore((s) => s.setAnalysisHero);
+  const analysisHero = useDraftStore((s) => s.analysisHero);
   const heroImageUrl = useHeroImage(slot.hero?.name ?? '');
 
   // Reset imgError when the hero in this slot changes
@@ -28,17 +30,26 @@ export default function DraftSlot({ slot, isActive }: Props) {
   const isBan = slot.type === 'ban';
   const isFilled = !!slot.hero;
   const isTargeted = activeTargetId === slot.id;
+  const isAnalyzed = isFilled && slot.type === 'pick' && analysisHero?.slug === slot.hero?.slug;
 
   return (
     <div
       ref={setNodeRef}
-      className={`draft-slot ${isActive ? 'active' : ''} ${isFilled ? 'filled cursor-pointer' : ''} ${isBan ? 'ban-slot' : ''} ${isOver ? 'ring-2 ring-gold-400' : ''} ${isTargeted ? 'ring-2 ring-blue-400 shadow-[0_0_15px_rgba(96,165,250,0.5)]' : ''}`}
+      className={`draft-slot ${isActive ? 'active' : ''} ${isFilled ? 'filled cursor-pointer' : ''} ${isBan ? 'ban-slot' : ''} ${isOver ? 'ring-2 ring-gold-400' : ''} ${isTargeted ? 'ring-2 ring-blue-400 shadow-[0_0_15px_rgba(96,165,250,0.5)]' : ''} ${isAnalyzed ? 'ring-2 ring-gold-500 shadow-[0_0_15px_rgba(234,179,8,0.5)]' : ''}`}
       role="button"
       aria-label={`${slot.team} ${slot.type} slot ${slot.index + 1}${slot.hero ? `: ${slot.hero.name}` : ''}`}
       id={`slot-${slot.id}`}
       onClick={() => {
         if (slot.hero) {
           setActiveTarget(isTargeted ? null : slot.id);
+          // Set analysis hero for CounterPanel (only for pick slots)
+          if (slot.type === 'pick') {
+            if (isAnalyzed) {
+              setAnalysisHero(null, null); // Deselect
+            } else {
+              setAnalysisHero(slot.hero, slot.team);
+            }
+          }
         }
       }}
     >

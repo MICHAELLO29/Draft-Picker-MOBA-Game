@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useQueries } from '@tanstack/react-query';
-import { Shield, AlertTriangle, Zap, Info, Swords, Target } from 'lucide-react';
-import { useCounters, useHeroes } from '../../hooks/useApi';
+import { Shield, AlertTriangle, Zap, Info, Swords, Trophy } from 'lucide-react';
+import { useCounters, useHeroes, useProMeta } from '../../hooks/useApi';
 import { useDraftStore } from '../../store/draftStore';
 import { detectSynergies, detectCompWarnings, detectThreats } from '../../utils/synergyRules';
 import type { CounterPick, Hero } from '../../types';
@@ -108,9 +108,17 @@ export default function CounterPanel() {
   const slots = useDraftStore((s) => s.slots);
   const getCurrentStep = useDraftStore((s) => s.getCurrentStep);
 
+  // Get clicked hero for analysis (from DraftSlot clicks)
+  const analysisHero = useDraftStore((s) => s.analysisHero);
+  const analysisTeam = useDraftStore((s) => s.analysisTeam);
+
   // Get all hero data for meta suggestions
   const { data: heroesData } = useHeroes();
   const allHeroes = heroesData?.data ?? [];
+
+  // Get MPL PH pro tournament meta data
+  const { data: proMetaData } = useProMeta();
+  const proMeta = proMetaData?.data ?? null;
 
   // Derive used slugs (both picked AND banned heroes)
   const usedSlugs = useMemo(() => {
@@ -135,53 +143,155 @@ export default function CounterPanel() {
   const isInBanPhase = currentStep?.type === 'ban';
 
   // ═══════════════════════════════════════════════════════════════
-  // CORE LOGIC: Determine what to anchor the panel on
+  // CORE LOGIC: Click-based threat analysis
   // ═══════════════════════════════════════════════════════════════
-  // Rule: NEVER anchor on a banned hero. Always anchor on the
-  // most dangerous ENEMY PICKED hero. If no enemy picks exist,
-  // show meta-based suggestions.
+  // analysisHero is set when user clicks a pick slot on the board.
+  // analysisTeam tells which team owns the hero (blue/red).
+  // Shows counter analysis for that specific clicked hero.
 
-  // Find the most dangerous enemy (red) picked hero by win rate
-  const primaryEnemyThreat = useMemo(() => {
-    if (redPicks.length === 0) return null;
-    // Sort by win rate descending, pick the strongest
-    return [...redPicks].sort((a, b) => (b.winRate ?? 0) - (a.winRate ?? 0))[0] ?? null;
-  }, [redPicks]);
+  // Fetch counters for the clicked analysis hero
+  const { data: counterData, isLoading: countersLoading } = useCounters(analysisHero?.slug ?? null);
 
-  // Fetch counters ONLY for the primary enemy threat (a PICKED hero, never a banned one)
-  const { data: counterData, isLoading: countersLoading } = useCounters(primaryEnemyThreat?.slug ?? null);
-
-  // Filter counter suggestions: only show heroes still available in the pool
+  // Filter counter suggestions: only show heroes still available
   const strongCounters = useMemo(() => {
     if (!counterData?.data) return [];
     return (counterData.data.strongAgainst ?? []).filter((c) => !usedSlugs.has(c.heroSlug));
   }, [counterData, usedSlugs]);
 
-  const weakCounters = useMemo(() => {
-    if (!counterData?.data) return [];
-    return (counterData.data.weakAgainst ?? []).filter((c) => !usedSlugs.has(c.heroSlug));
-  }, [counterData, usedSlugs]);
 
-  // Meta-based ban suggestions (when no enemy picks exist)
-  // Show top tier heroes with highest ban rates that are still available
+
+  // Meta-based ban suggestions — PRIORITIZE PRO DATA
+  // Cross-reference MPL pro bans/picks with ladder data for non-biased suggestions
   const metaBanSuggestions = useMemo(() => {
-    if (primaryEnemyThreat) return []; // Not needed when we have enemy picks
-    return allHeroes
-      .filter((h) => !usedSlugs.has(h.slug))
-      .filter((h) => h.tier === 'S' || h.tier === 'S+' || (h.banRate ?? 0) > 10)
-      .sort((a, b) => (b.banRate ?? 0) - (a.banRate ?? 0))
-      .slice(0, 5);
-  }, [allHeroes, usedSlugs, primaryEnemyThreat]);
+    if (analysisHero) return []; // Don't show ban suggestions while analyzing a hero
 
-  // Meta-based pick suggestions (when in pick phase, no enemy picks yet)
-  // Show top win rate heroes that are still available — safe/flex first picks
-  const metaPickSuggestions = useMemo(() => {
-    return allHeroes
-      .filter((h) => !usedSlugs.has(h.slug))
-      .filter((h) => (h.winRate ?? 0) > 49)
-      .sort((a, b) => (b.winRate ?? 0) - (a.winRate ?? 0))
+    // Build a score map: pro ban count + pro pick count + ladder ban rate
+    const heroScoreMap = new Map<string, { hero: Hero; proScore: number; proBanCount?: number; proPickCount?: number; proWinRate?: number; source: string }>();
+
+    // Add pro ban data (highest priority — these are what pros ban)
+    if (proMeta) {
+      for (const entry of proMeta.topBans) {
+        const hero = allHeroes.find((h) => h.slug === entry.heroSlug || h.name.toLowerCase() === entry.heroName.toLowerCase());
+        if (hero && !usedSlugs.has(hero.slug)) {
+          heroScoreMap.set(hero.slug, {
+            hero,
+            proScore: (entry.banCount ?? 0) * 2, // Pro bans weighted heavily
+            proBanCount: entry.banCount,
+            source: 'MPL Pro Ban',
+          });
+        }
+      }
+      // Add pro pick data (if pros pick it a lot, it's strong — consider banning)
+      for (const entry of proMeta.topPicks) {
+        const hero = allHeroes.find((h) => h.slug === entry.heroSlug || h.name.toLowerCase() === entry.heroName.toLowerCase());
+        if (hero && !usedSlugs.has(hero.slug)) {
+          const existing = heroScoreMap.get(hero.slug);
+          if (existing) {
+            existing.proScore += (entry.pickCount ?? 0);
+            existing.proPickCount = entry.pickCount;
+          } else {
+            heroScoreMap.set(hero.slug, {
+              hero,
+              proScore: entry.pickCount ?? 0,
+              proPickCount: entry.pickCount,
+              source: 'MPL Pro Pick',
+            });
+          }
+        }
+      }
+      // Add pro win rate data
+      for (const entry of proMeta.topWinRates) {
+        const hero = allHeroes.find((h) => h.slug === entry.heroSlug || h.name.toLowerCase() === entry.heroName.toLowerCase());
+        if (hero && !usedSlugs.has(hero.slug)) {
+          const existing = heroScoreMap.get(hero.slug);
+          if (existing) {
+            existing.proScore += ((entry.proWinRate ?? 50) - 50) * 2;
+            existing.proWinRate = entry.proWinRate;
+          } else {
+            heroScoreMap.set(hero.slug, {
+              hero,
+              proScore: ((entry.proWinRate ?? 50) - 50) * 2,
+              proWinRate: entry.proWinRate,
+              source: 'MPL Pro WR',
+            });
+          }
+        }
+      }
+    }
+
+    // Fallback: add ladder S-tier heroes not already in pro data
+    for (const h of allHeroes) {
+      if (usedSlugs.has(h.slug)) continue;
+      if (heroScoreMap.has(h.slug)) continue;
+      if (h.tier === 'S' || h.tier === 'S+' || (h.banRate ?? 0) > 15) {
+        heroScoreMap.set(h.slug, {
+          hero: h,
+          proScore: (h.banRate ?? 0) * 0.5,
+          source: 'Ladder Meta',
+        });
+      }
+    }
+
+    return Array.from(heroScoreMap.values())
+      .sort((a, b) => b.proScore - a.proScore)
       .slice(0, 5);
-  }, [allHeroes, usedSlugs]);
+  }, [allHeroes, usedSlugs, analysisHero, proMeta]);
+
+  // Meta-based pick suggestions — PRIORITIZE PRO DATA
+  // Show heroes that pros pick most + highest win rate, still available
+  const metaPickSuggestions = useMemo(() => {
+    const heroScoreMap = new Map<string, { hero: Hero; proScore: number; proPickCount?: number; proWinRate?: number; source: string }>();
+
+    if (proMeta) {
+      // Pro picks are top priority for pick recommendations
+      for (const entry of proMeta.topPicks) {
+        const hero = allHeroes.find((h) => h.slug === entry.heroSlug || h.name.toLowerCase() === entry.heroName.toLowerCase());
+        if (hero && !usedSlugs.has(hero.slug)) {
+          heroScoreMap.set(hero.slug, {
+            hero,
+            proScore: (entry.pickCount ?? 0) * 2,
+            proPickCount: entry.pickCount,
+            source: 'MPL Pro Pick',
+          });
+        }
+      }
+      // Pro win rate heroes
+      for (const entry of proMeta.topWinRates) {
+        const hero = allHeroes.find((h) => h.slug === entry.heroSlug || h.name.toLowerCase() === entry.heroName.toLowerCase());
+        if (hero && !usedSlugs.has(hero.slug)) {
+          const existing = heroScoreMap.get(hero.slug);
+          if (existing) {
+            existing.proScore += ((entry.proWinRate ?? 50) - 50) * 3;
+            existing.proWinRate = entry.proWinRate;
+          } else {
+            heroScoreMap.set(hero.slug, {
+              hero,
+              proScore: ((entry.proWinRate ?? 50) - 50) * 3,
+              proWinRate: entry.proWinRate,
+              source: 'MPL Pro WR',
+            });
+          }
+        }
+      }
+    }
+
+    // Fill with ladder high WR heroes
+    for (const h of allHeroes) {
+      if (usedSlugs.has(h.slug)) continue;
+      if (heroScoreMap.has(h.slug)) continue;
+      if ((h.winRate ?? 0) > 50) {
+        heroScoreMap.set(h.slug, {
+          hero: h,
+          proScore: (h.winRate ?? 50) - 50,
+          source: 'Ladder Meta',
+        });
+      }
+    }
+
+    return Array.from(heroScoreMap.values())
+      .sort((a, b) => b.proScore - a.proScore)
+      .slice(0, 5);
+  }, [allHeroes, usedSlugs, proMeta]);
 
   // ═══════════════════════════════════════════════════════════════
   // BAN ADVANTAGE: Fetch counter data for ALL banned heroes
@@ -207,58 +317,164 @@ export default function CounterPanel() {
     })),
   });
 
-  // Combine weakAgainst from ALL banned heroes:
-  // Heroes that appear in multiple banned heroes' weakAgainst lists
-  // are EXTRA advantaged (multiple threats removed)
+  // Show ALL available pro meta picks when bans exist.
+  // Heroes with direct counter advantage from bans get a bonus score.
+  // This ensures the section always shows meaningful pro recommendations.
   const advantagedByBans = useMemo(() => {
-    const heroScores = new Map<string, { counter: CounterPick; freedFromCount: number; freedFrom: string[] }>();
+    if (bannedHeroes.length === 0) return [];
 
+    // Build freed heroes map from counter data (for bonus scoring)
+    const freedHeroes = new Map<string, string[]>();
     banCounterQueries.forEach((query, idx) => {
       if (!query.data?.data) return;
       const bannedName = bannedHeroes[idx]?.name ?? 'Unknown';
-      const weakList = query.data.data.weakAgainst ?? [];
-
-      for (const counter of weakList) {
-        // Skip heroes already picked or banned
+      for (const counter of (query.data.data.weakAgainst ?? [])) {
         if (usedSlugs.has(counter.heroSlug)) continue;
-
-        const existing = heroScores.get(counter.heroSlug);
-        if (existing) {
-          existing.freedFromCount += 1;
-          existing.freedFrom.push(bannedName);
-          // Average the win rates from different matchups
-          existing.counter = {
-            ...existing.counter,
-            matchupWinRate: (existing.counter.matchupWinRate + counter.matchupWinRate) / 2,
-          };
-        } else {
-          heroScores.set(counter.heroSlug, {
-            counter: { ...counter },
-            freedFromCount: 1,
-            freedFrom: [bannedName],
-          });
-        }
+        const existing = freedHeroes.get(counter.heroSlug);
+        if (existing) existing.push(bannedName);
+        else freedHeroes.set(counter.heroSlug, [bannedName]);
       }
     });
 
-    // Sort: heroes freed from multiple bans first, then by win rate
-    return Array.from(heroScores.values())
-      .sort((a, b) => b.freedFromCount - a.freedFromCount || b.counter.matchupWinRate - a.counter.matchupWinRate)
-      .slice(0, 5);
-  }, [banCounterQueries, bannedHeroes, usedSlugs]);
+    // Build ALL available pro heroes
+    type AdvantagedEntry = { hero: Hero; freedFrom: string[]; proPickCount?: number; proBanCount?: number; proWinRate?: number; score: number; isPro: true };
+    const results: AdvantagedEntry[] = [];
 
-  // Heroes that counter our ally picks (threats to be aware of)
-  const allyThreatHero = useMemo(() => {
-    if (bluePicks.length === 0) return null;
-    return bluePicks[bluePicks.length - 1] ?? null;
-  }, [bluePicks]);
+    if (!proMeta) return [];
 
-  const { data: allyCounterData } = useCounters(allyThreatHero?.slug ?? null);
+    const proHeroInfo = new Map<string, { pickCount?: number; banCount?: number; proWinRate?: number }>();
+    for (const entry of proMeta.topPicks) {
+      const hero = allHeroes.find((h) => h.slug === entry.heroSlug || h.name.toLowerCase() === entry.heroName.toLowerCase());
+      if (hero && !usedSlugs.has(hero.slug)) {
+        proHeroInfo.set(hero.slug, { pickCount: entry.pickCount });
+      }
+    }
+    for (const entry of proMeta.topBans) {
+      const hero = allHeroes.find((h) => h.slug === entry.heroSlug || h.name.toLowerCase() === entry.heroName.toLowerCase());
+      if (hero && !usedSlugs.has(hero.slug)) {
+        const e = proHeroInfo.get(hero.slug);
+        if (e) e.banCount = entry.banCount;
+        else proHeroInfo.set(hero.slug, { banCount: entry.banCount });
+      }
+    }
+    for (const entry of proMeta.topWinRates) {
+      const hero = allHeroes.find((h) => h.slug === entry.heroSlug || h.name.toLowerCase() === entry.heroName.toLowerCase());
+      if (hero && !usedSlugs.has(hero.slug)) {
+        const e = proHeroInfo.get(hero.slug);
+        if (e) e.proWinRate = entry.proWinRate;
+        else proHeroInfo.set(hero.slug, { proWinRate: entry.proWinRate });
+      }
+    }
 
-  const allyThreats = useMemo(() => {
-    if (!allyCounterData?.data) return [];
-    return (allyCounterData.data.strongAgainst ?? []).filter((c) => !usedSlugs.has(c.heroSlug));
-  }, [allyCounterData, usedSlugs]);
+    for (const [slug, proInfo] of proHeroInfo) {
+      const hero = allHeroes.find((h) => h.slug === slug);
+      if (!hero) continue;
+
+      const freedFrom = freedHeroes.get(slug) ?? [];
+      // Score: pro pick count + pro ban count + bonus if directly freed
+      const score =
+        (proInfo.pickCount ?? 0) * 3 +
+        (proInfo.banCount ?? 0) * 2 +
+        freedFrom.length * 15;
+
+      results.push({
+        hero,
+        freedFrom,
+        proPickCount: proInfo.pickCount,
+        proBanCount: proInfo.banCount,
+        proWinRate: proInfo.proWinRate,
+        score,
+        isPro: true,
+      });
+    }
+
+    return results.sort((a, b) => b.score - a.score).slice(0, 5);
+  }, [banCounterQueries, bannedHeroes, usedSlugs, proMeta, allHeroes]);
+
+  // Pro synergy picks — pro meta heroes that complement the current blue team
+  // Instead of showing win-rate counters, show pro picks that fill team gaps
+  const proSynergyPicks = useMemo(() => {
+    if (bluePicks.length === 0) return [];
+
+    // Analyze current team roles
+    const teamRoles = new Set(bluePicks.flatMap((h) => h.roles));
+    const needsRoles: string[] = [];
+    if (!teamRoles.has('Tank')) needsRoles.push('Tank');
+    if (!teamRoles.has('Mage')) needsRoles.push('Mage');
+    if (!teamRoles.has('Marksman')) needsRoles.push('Marksman');
+    if (!teamRoles.has('Assassin')) needsRoles.push('Assassin');
+    if (!teamRoles.has('Fighter')) needsRoles.push('Fighter');
+    if (!teamRoles.has('Support')) needsRoles.push('Support');
+
+    // Build pro hero candidate pool
+    type SynergyEntry = { hero: Hero; proPickCount?: number; proWinRate?: number; fillsRole: string; isPro: boolean; score: number };
+    const results: SynergyEntry[] = [];
+
+    if (proMeta) {
+      // Combine all pro heroes
+      const proHeroes = new Map<string, { pickCount?: number; proWinRate?: number }>();
+      for (const entry of proMeta.topPicks) {
+        const hero = allHeroes.find((h) => h.slug === entry.heroSlug || h.name.toLowerCase() === entry.heroName.toLowerCase());
+        if (hero && !usedSlugs.has(hero.slug)) {
+          proHeroes.set(hero.slug, { pickCount: entry.pickCount });
+        }
+      }
+      for (const entry of proMeta.topWinRates) {
+        const hero = allHeroes.find((h) => h.slug === entry.heroSlug || h.name.toLowerCase() === entry.heroName.toLowerCase());
+        if (hero && !usedSlugs.has(hero.slug)) {
+          const existing = proHeroes.get(hero.slug);
+          if (existing) {
+            existing.proWinRate = entry.proWinRate;
+          } else {
+            proHeroes.set(hero.slug, { proWinRate: entry.proWinRate });
+          }
+        }
+      }
+
+      // Score pro heroes by how well they fill team gaps
+      for (const [slug, proInfo] of proHeroes) {
+        const hero = allHeroes.find((h) => h.slug === slug);
+        if (!hero) continue;
+
+        // Check if this hero fills a needed role
+        const filledRole = hero.roles.find((r) => needsRoles.includes(r));
+        if (!filledRole && needsRoles.length > 0) continue; // Only show role-fillers when team has gaps
+
+        const score =
+          (proInfo.pickCount ?? 0) * 3 +
+          (filledRole ? 20 : 0) +
+          (needsRoles.length === 0 ? (proInfo.pickCount ?? 0) : 0); // If team is complete, just rank by pro picks
+
+        results.push({
+          hero,
+          proPickCount: proInfo.pickCount,
+          proWinRate: proInfo.proWinRate,
+          fillsRole: filledRole ?? hero.roles[0] ?? 'Flex',
+          isPro: true,
+          score,
+        });
+      }
+    }
+
+    // If no pro data, fall back to available meta heroes that fill gaps
+    if (results.length === 0 && needsRoles.length > 0) {
+      for (const h of allHeroes) {
+        if (usedSlugs.has(h.slug)) continue;
+        const filledRole = h.roles.find((r) => needsRoles.includes(r));
+        if (!filledRole) continue;
+        if (h.tier === 'S' || h.tier === 'S+' || h.tier === 'A') {
+          results.push({
+            hero: h,
+            fillsRole: filledRole,
+            isPro: false,
+            score: h.tier === 'S+' ? 15 : h.tier === 'S' ? 10 : 5,
+          });
+        }
+      }
+    }
+
+    return results.sort((a, b) => b.score - a.score).slice(0, 3);
+  }, [bluePicks, allHeroes, usedSlugs, proMeta]);
 
   // Detect synergies for blue team
   const synergies = useMemo(() => detectSynergies(bluePicks), [bluePicks]);
@@ -275,23 +491,25 @@ export default function CounterPanel() {
   const hasAnyHeroes = usedSlugs.size > 0;
 
   let panelState: PanelState = 'IDLE';
-  if (!hasAnyHeroes && !isInBanPhase) {
-    panelState = 'IDLE';
-  } else if (primaryEnemyThreat) {
+  if (analysisHero) {
+    // User clicked a hero on the board — show threat analysis for that hero
     panelState = 'ENEMY_PICKED';
+  } else if (!hasAnyHeroes && !isInBanPhase) {
+    panelState = 'IDLE';
   } else if (!isInBanPhase) {
-    // We're in pick phase but no enemy picks yet — show pick recommendations
     panelState = 'PICK_RECOMMENDATIONS';
   } else {
-    // We're in ban phase — show meta ban suggestions
     panelState = 'META_BANS';
   }
 
   // Panel title based on state
+  const analysisLabel = analysisHero
+    ? `${analysisHero.name} (${analysisTeam === 'blue' ? 'Blue' : 'Red'} Team)`
+    : '';
   const panelTitle = panelState === 'META_BANS'
     ? 'Ban Suggestions'
     : panelState === 'ENEMY_PICKED'
-      ? 'Threat Analysis'
+      ? `Threat Analysis — ${analysisLabel}`
       : panelState === 'PICK_RECOMMENDATIONS'
         ? 'Pick Recommendations'
         : 'Draft Intel';
@@ -331,11 +549,35 @@ export default function CounterPanel() {
         {panelState === 'META_BANS' && (
           <div className="space-y-2">
             <p className="text-[0.65rem] text-steel-500">
-              Top meta threats — consider banning these:
+              {proMeta ? 'MPL Pro + Ladder meta threats — consider banning:' : 'Top meta threats — consider banning these:'}
             </p>
             {metaBanSuggestions.length > 0 ? (
-              metaBanSuggestions.slice(0, 5).map((hero) => (
-                <MetaBanCard key={hero.slug} hero={hero} />
+              metaBanSuggestions.map((entry) => (
+                <div key={entry.hero.slug}>
+                  <MetaBanCard hero={entry.hero} />
+                  <div className="flex items-center gap-2 mt-0.5 ml-[52px]">
+                    {entry.source.startsWith('MPL') && (
+                      <span className="text-[0.55rem] bg-gold-500/20 text-gold-400 px-1.5 py-0.5 rounded font-bold">
+                        🏆 MPL Pro
+                      </span>
+                    )}
+                    {entry.proBanCount && (
+                      <span className="text-[0.55rem] text-red-400/70">
+                        {entry.proBanCount}× banned
+                      </span>
+                    )}
+                    {entry.proPickCount && (
+                      <span className="text-[0.55rem] text-blue-400/70">
+                        {entry.proPickCount}× picked
+                      </span>
+                    )}
+                    {entry.proWinRate && (
+                      <span className="text-[0.55rem] text-green-400/70">
+                        {entry.proWinRate.toFixed(1)}% pro WR
+                      </span>
+                    )}
+                  </div>
+                </div>
               ))
             ) : (
               <p className="text-xs text-steel-500 py-4 text-center">
@@ -346,14 +588,14 @@ export default function CounterPanel() {
         )}
 
         {/* ─── STATE: ENEMY_PICKED ─── */}
-        {panelState === 'ENEMY_PICKED' && primaryEnemyThreat && (
+        {panelState === 'ENEMY_PICKED' && analysisHero && (
           <div className="flex flex-col gap-5">
-            {/* Counter Picks vs enemy */}
+            {/* Counter Picks vs selected hero */}
             <div className="space-y-2">
               <div className="flex items-center gap-2 mb-1">
                 <Swords className="w-3.5 h-3.5 text-gold-500" />
                 <p className="text-[0.65rem] text-steel-400 font-bold uppercase tracking-wider">
-                  Counter Picks (Strong vs {primaryEnemyThreat.name})
+                  Counter Picks (Strong vs {analysisHero.name})
                 </p>
               </div>
               {countersLoading ? (
@@ -371,17 +613,29 @@ export default function CounterPanel() {
               )}
             </div>
 
-            {/* Counter Bans — heroes that enable the enemy threat */}
-            {weakCounters.length > 0 && (
+            {/* Pro Synergy Picks — show alongside threat analysis */}
+            {proSynergyPicks.length > 0 && (
               <div className="space-y-2">
                 <div className="flex items-center gap-2 mb-1">
-                  <Target className="w-3.5 h-3.5 text-red-400" />
+                  <Trophy className="w-3.5 h-3.5 text-gold-500" />
                   <p className="text-[0.65rem] text-steel-400 font-bold uppercase tracking-wider">
-                    {primaryEnemyThreat.name} is Weak Against
+                    Pro Picks to Complement Your Team
                   </p>
                 </div>
-                {weakCounters.slice(0, 3).map((counter) => (
-                  <CounterCard key={counter.heroSlug} counter={counter} />
+                {proSynergyPicks.map((entry) => (
+                  <div key={entry.hero.slug}>
+                    <MetaBanCard hero={entry.hero} />
+                    <div className="flex items-center gap-1 mt-0.5 ml-[52px] flex-wrap">
+                      {entry.isPro && (
+                        <span className="text-[0.55rem] bg-gold-500/20 text-gold-400 px-1.5 py-0.5 rounded font-bold">
+                          🏆 Pro
+                        </span>
+                      )}
+                      <span className="text-[0.55rem] bg-blue-500/20 text-blue-300 px-1.5 py-0.5 rounded">
+                        {entry.fillsRole}
+                      </span>
+                    </div>
+                  </div>
                 ))}
               </div>
             )}
@@ -391,10 +645,10 @@ export default function CounterPanel() {
         {/* ─── STATE: PICK_RECOMMENDATIONS ─── */}
         {panelState === 'PICK_RECOMMENDATIONS' && (
           <div className="flex flex-col gap-5">
-            {primaryEnemyThreat ? (
+            {analysisHero ? (
               <div className="space-y-2">
                 <p className="text-[0.65rem] text-steel-500">
-                  Counter picks vs {primaryEnemyThreat.name}:
+                  Counter picks vs {analysisHero.name}:
                 </p>
                 {strongCounters.length > 0 ? (
                   strongCounters.slice(0, 5).map((counter) => (
@@ -414,18 +668,30 @@ export default function CounterPanel() {
                     <div className="flex items-center gap-2 mb-1">
                       <Shield className="w-3.5 h-3.5 text-green-400" />
                       <p className="text-[0.65rem] text-steel-400 font-bold uppercase tracking-wider">
-                        Advantaged by Bans
+                        Pro Pick Recommendations
                       </p>
                     </div>
                     <p className="text-[0.65rem] text-steel-500">
-                      These heroes benefit from the current bans:
+                      MPL pro heroes available with current bans:
                     </p>
-                    {advantagedByBans.map(({ counter, freedFrom }) => (
-                      <div key={counter.heroSlug}>
-                        <CounterCard counter={counter} />
-                        <p className="text-[0.55rem] text-green-400/70 mt-0.5 ml-[52px]">
-                          Freed from: {freedFrom.join(', ')}
-                        </p>
+                    {advantagedByBans.map((entry) => (
+                      <div key={entry.hero.slug}>
+                        <MetaBanCard hero={entry.hero} />
+                        <div className="flex items-center gap-2 mt-0.5 ml-[52px] flex-wrap">
+                          <span className="text-[0.55rem] bg-gold-500/20 text-gold-400 px-1.5 py-0.5 rounded font-bold">
+                            🏆 MPL Pro
+                          </span>
+                          {entry.proPickCount && (
+                            <span className="text-[0.55rem] text-blue-400/70">
+                              {entry.proPickCount}× picked
+                            </span>
+                          )}
+                          {entry.freedFrom.length > 0 && (
+                            <span className="text-[0.55rem] text-emerald-400/70">
+                              ✓ Freed from: {entry.freedFrom.join(', ')}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -434,17 +700,36 @@ export default function CounterPanel() {
                 {/* Meta Picks */}
                 <div className="space-y-2">
                   <div className="flex items-center gap-2 mb-1">
-                    <Swords className="w-3.5 h-3.5 text-gold-500" />
+                    <Trophy className="w-3.5 h-3.5 text-gold-500" />
                     <p className="text-[0.65rem] text-steel-400 font-bold uppercase tracking-wider">
-                      Meta Picks
+                      {proMeta ? 'Pro + Ladder Picks' : 'Meta Picks'}
                     </p>
                   </div>
                   <p className="text-[0.65rem] text-steel-500">
-                    Top win rate heroes still available:
+                    {proMeta ? 'MPL Pro picks + top win rate heroes:' : 'Top win rate heroes still available:'}
                   </p>
                   {metaPickSuggestions.length > 0 ? (
-                    metaPickSuggestions.slice(0, 5).map((hero) => (
-                      <MetaBanCard key={hero.slug} hero={hero} />
+                    metaPickSuggestions.map((entry) => (
+                      <div key={entry.hero.slug}>
+                        <MetaBanCard hero={entry.hero} />
+                        <div className="flex items-center gap-2 mt-0.5 ml-[52px]">
+                          {entry.source.startsWith('MPL') && (
+                            <span className="text-[0.55rem] bg-gold-500/20 text-gold-400 px-1.5 py-0.5 rounded font-bold">
+                              🏆 MPL Pro
+                            </span>
+                          )}
+                          {entry.proPickCount && (
+                            <span className="text-[0.55rem] text-blue-400/70">
+                              {entry.proPickCount}× pro picked
+                            </span>
+                          )}
+                          {entry.proWinRate && (
+                            <span className="text-[0.55rem] text-green-400/70">
+                              {entry.proWinRate.toFixed(1)}% pro WR
+                            </span>
+                          )}
+                        </div>
+                      </div>
                     ))
                   ) : (
                     <p className="text-xs text-steel-500 py-4 text-center">
@@ -458,18 +743,35 @@ export default function CounterPanel() {
         )}
       </div>
 
-      {/* ══════ ALLY PROTECTION PANEL ══════ */}
-      {allyThreatHero && allyThreats.length > 0 && !isInBanPhase && (
+      {/* ══════ PRO SYNERGY PICKS PANEL ══════ */}
+      {bluePicks.length > 0 && proSynergyPicks.length > 0 && !isInBanPhase && (
         <div className="glass-panel p-4 flex flex-col gap-3 animate-slide-in">
           <div className="flex items-center gap-2">
-            <Shield className="w-4 h-4 text-blue-400" />
-            <h3 className="text-sm font-bold">Protect {allyThreatHero.name}</h3>
+            <Trophy className="w-4 h-4 text-gold-400" />
+            <h3 className="text-sm font-bold">Pro Synergy Picks</h3>
           </div>
           <p className="text-[0.65rem] text-steel-500">
-            These heroes counter your {allyThreatHero.name} — consider banning:
+            Pro meta heroes that complement your {bluePicks.map(h => h.name).join(', ')}:
           </p>
-          {allyThreats.slice(0, 3).map((counter) => (
-            <CounterCard key={counter.heroSlug} counter={counter} />
+          {proSynergyPicks.map((entry) => (
+            <div key={entry.hero.slug}>
+              <MetaBanCard hero={entry.hero} />
+              <div className="flex items-center gap-2 mt-0.5 ml-[52px] flex-wrap">
+                {entry.isPro && (
+                  <span className="text-[0.55rem] bg-gold-500/20 text-gold-400 px-1.5 py-0.5 rounded font-bold">
+                    🏆 MPL Pro
+                  </span>
+                )}
+                {entry.proPickCount && (
+                  <span className="text-[0.55rem] text-blue-400/70">
+                    {entry.proPickCount}× pro picked
+                  </span>
+                )}
+                <span className="text-[0.55rem] bg-blue-500/20 text-blue-300 px-1.5 py-0.5 rounded">
+                  Fills: {entry.fillsRole}
+                </span>
+              </div>
+            </div>
           ))}
         </div>
       )}

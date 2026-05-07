@@ -1,4 +1,4 @@
-import type { Hero, CounterResult, ApiEnvelope } from '../types';
+import type { Hero, CounterResult, ProMetaData, ApiEnvelope } from '../types';
 
 const API_BASE = '/api';
 
@@ -27,6 +27,13 @@ export async function fetchStats(rank: string = 'all'): Promise<ApiEnvelope<Hero
 export async function fetchTierList(): Promise<ApiEnvelope<Hero[]>> {
   const res = await fetch(`${API_BASE}/tierlist`);
   if (!res.ok) throw new Error(`Failed to fetch tier list: ${res.status}`);
+  return res.json();
+}
+
+/** Fetch MPL PH pro tournament meta data */
+export async function fetchProMeta(): Promise<ApiEnvelope<ProMetaData>> {
+  const res = await fetch(`${API_BASE}/pro-meta`);
+  if (!res.ok) throw new Error(`Failed to fetch pro meta: ${res.status}`);
   return res.json();
 }
 

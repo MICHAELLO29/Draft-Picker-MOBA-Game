@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getHeroes, getCounters } from '../services/scraperService.js';
+import { getHeroes, getCounters, getProMeta } from '../services/scraperService.js';
 import { normalizeHeroSlug } from '../utils/slugify.js';
 
 const router = Router();
@@ -26,6 +26,16 @@ router.get('/counter/:heroSlug', async (req, res, next) => {
     }
 
     const result = await getCounters(heroSlug);
+    res.json(result);
+  } catch (error) {
+    next(error);
+  }
+});
+
+/** GET /api/pro-meta — MPL PH pro tournament meta data */
+router.get('/pro-meta', async (_req, res, next) => {
+  try {
+    const result = await getProMeta();
     res.json(result);
   } catch (error) {
     next(error);

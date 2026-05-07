@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { fetchHeroes, fetchCounters, fetchStats, fetchTierList } from '../services/api';
+import { fetchHeroes, fetchCounters, fetchStats, fetchTierList, fetchProMeta } from '../services/api';
 
 /** Hook to fetch the full hero roster */
 export function useHeroes() {
@@ -39,5 +39,15 @@ export function useTierList() {
     queryFn: fetchTierList,
     staleTime: 6 * 60 * 60 * 1000,
     retry: 2,
+  });
+}
+
+/** Hook to fetch MPL PH pro tournament meta data */
+export function useProMeta() {
+  return useQuery({
+    queryKey: ['pro-meta'],
+    queryFn: fetchProMeta,
+    staleTime: 6 * 60 * 60 * 1000,
+    retry: 1,
   });
 }

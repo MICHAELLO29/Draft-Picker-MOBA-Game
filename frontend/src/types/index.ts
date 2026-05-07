@@ -30,6 +30,25 @@ export interface CounterResult {
   weakAgainst: CounterPick[];
 }
 
+/** Pro meta entry from MPL PH tournament data */
+export interface ProMetaEntry {
+  heroName: string;
+  heroSlug: string;
+  pickCount?: number;
+  banCount?: number;
+  proWinRate?: number;
+  category: 'pick' | 'ban' | 'winrate';
+}
+
+/** Pro meta data from MPL PH */
+export interface ProMetaData {
+  topPicks: ProMetaEntry[];
+  topBans: ProMetaEntry[];
+  topWinRates: ProMetaEntry[];
+  scrapeTimestamp: string;
+  source: string;
+}
+
 /** API envelope from backend */
 export interface ApiEnvelope<T> {
   data: T;

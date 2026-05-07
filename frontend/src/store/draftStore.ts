@@ -67,6 +67,8 @@ interface DraftState {
   mode: 'ranked' | 'custom' | 'manual';
   activeTargetId: string | null;
   previewHero: Hero | null;
+  analysisHero: Hero | null;  // Hero selected for threat analysis
+  analysisTeam: TeamSide | null; // Which team the analysis hero belongs to
 
   // Derived
   getSlot: (id: string) => DraftSlot | undefined;
@@ -87,6 +89,7 @@ interface DraftState {
   setMode: (mode: 'ranked' | 'custom' | 'manual') => void;
   setActiveTarget: (id: string | null) => void;
   setPreviewHero: (hero: Hero | null) => void;
+  setAnalysisHero: (hero: Hero | null, team: TeamSide | null) => void;
 }
 
 export const useDraftStore = create<DraftState>((set, get) => ({
@@ -98,9 +101,12 @@ export const useDraftStore = create<DraftState>((set, get) => ({
   mode: 'ranked',
   activeTargetId: null,
   previewHero: null,
+  analysisHero: null,
+  analysisTeam: null,
 
   setActiveTarget: (id) => set({ activeTargetId: id }),
   setPreviewHero: (hero) => set({ previewHero: hero }),
+  setAnalysisHero: (hero, team) => set({ analysisHero: hero, analysisTeam: team }),
 
   getSlot: (id) => get().slots.find((s) => s.id === id),
 
