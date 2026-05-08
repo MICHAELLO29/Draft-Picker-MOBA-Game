@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react';
 import { useQueries } from '@tanstack/react-query';
-import { Shield, AlertTriangle, Zap, Info, Swords, Trophy, Compass } from 'lucide-react';
+import { Shield, AlertTriangle, Zap, Info, Swords, Trophy, Compass, Target } from 'lucide-react';
+
+type PanelTab = 'intel' | 'strategy' | 'counters';
 import { useCounters, useHeroes, useProMeta } from '../../hooks/useApi';
 import { useDraftStore } from '../../store/draftStore';
 import { detectSynergies, detectCompWarnings, detectThreats } from '../../utils/synergyRules';
@@ -540,10 +542,35 @@ export default function CounterPanel() {
       ? 'text-orange-400'
       : 'text-gold-500';
 
-  return (
-    <div className="flex flex-col gap-4 h-full overflow-y-auto" id="counter-panel">
+  const [panelTab, setPanelTab] = useState<PanelTab>('intel');
 
-      {/* ══════ PRIMARY PANEL ══════ */}
+  return (
+    <div className="flex flex-col gap-3 h-full overflow-y-auto" id="counter-panel">
+
+      {/* ══════ TAB BAR ══════ */}
+      <div className="flex gap-1 bg-navy-900/50 rounded-lg p-1">
+        {([
+          { id: 'intel' as PanelTab, label: 'Intel', icon: Shield },
+          { id: 'strategy' as PanelTab, label: 'Strategy', icon: Compass },
+          { id: 'counters' as PanelTab, label: 'Counters', icon: Target },
+        ]).map(({ id, label, icon: Icon }) => (
+          <button
+            key={id}
+            onClick={() => setPanelTab(id)}
+            className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-md text-[0.65rem] font-bold uppercase tracking-wider transition-all ${
+              panelTab === id
+                ? 'bg-gold-500/20 text-gold-400 shadow-sm'
+                : 'text-steel-500 hover:text-steel-300 hover:bg-navy-800/50'
+            }`}
+          >
+            <Icon className="w-3 h-3" />
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* ══════ INTEL TAB: Primary panel ══════ */}
+      {panelTab === 'intel' && (
       <div className="glass-panel p-4 flex flex-col gap-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -578,7 +605,7 @@ export default function CounterPanel() {
                   <div className="flex items-center gap-2 mt-0.5 ml-[52px]">
                     {entry.source.startsWith('MPL') && (
                       <span className="text-[0.55rem] bg-gold-500/20 text-gold-400 px-1.5 py-0.5 rounded font-bold">
-                        🏆 MPL Pro
+                        MPL PRO
                       </span>
                     )}
                     {entry.proBanCount && (
@@ -674,7 +701,7 @@ export default function CounterPanel() {
                         <MetaBanCard hero={entry.hero} />
                         <div className="flex items-center gap-2 mt-0.5 ml-[52px] flex-wrap">
                           <span className="text-[0.55rem] bg-gold-500/20 text-gold-400 px-1.5 py-0.5 rounded font-bold">
-                            🏆 MPL Pro
+                            MPL PRO
                           </span>
                           {entry.proPickCount && (
                             <span className="text-[0.55rem] text-blue-400/70">
@@ -683,7 +710,7 @@ export default function CounterPanel() {
                           )}
                           {entry.freedFrom.length > 0 && (
                             <span className="text-[0.55rem] text-emerald-400/70">
-                              ✓ Freed from: {entry.freedFrom.join(', ')}
+                              Freed from: {entry.freedFrom.join(', ')}
                             </span>
                           )}
                         </div>
@@ -710,7 +737,7 @@ export default function CounterPanel() {
                         <div className="flex items-center gap-2 mt-0.5 ml-[52px]">
                           {entry.source.startsWith('MPL') && (
                             <span className="text-[0.55rem] bg-gold-500/20 text-gold-400 px-1.5 py-0.5 rounded font-bold">
-                              🏆 MPL Pro
+                              MPL PRO
                             </span>
                           )}
                           {entry.proPickCount && (
@@ -737,9 +764,10 @@ export default function CounterPanel() {
           </div>
         )}
       </div>
+      )}
 
-      {/* ══════ PRO SYNERGY PICKS PANEL ══════ */}
-      {currentTeamPicks.length > 0 && proSynergyPicks.length > 0 && !isInBanPhase && (
+      {/* ══════ INTEL TAB: Pro Synergy Picks ══════ */}
+      {panelTab === 'intel' && currentTeamPicks.length > 0 && proSynergyPicks.length > 0 && !isInBanPhase && (
         <div className="glass-panel p-4 flex flex-col gap-3 animate-slide-in">
           <div className="flex items-center gap-2">
             <Trophy className="w-4 h-4 text-gold-400" />
@@ -754,7 +782,7 @@ export default function CounterPanel() {
               <div className="flex items-center gap-2 mt-0.5 ml-[52px] flex-wrap">
                 {entry.isPro && (
                   <span className="text-[0.55rem] bg-gold-500/20 text-gold-400 px-1.5 py-0.5 rounded font-bold">
-                    🏆 MPL Pro
+                    MPL PRO
                   </span>
                 )}
                 {entry.proPickCount && (
@@ -771,8 +799,8 @@ export default function CounterPanel() {
         </div>
       )}
 
-      {/* ══════ STRATEGY SUGGESTIONS PANEL ══════ */}
-      {strategyRecommendations.length > 0 && bannedSlugSet.size > 0 && (
+      {/* ══════ STRATEGY TAB ══════ */}
+      {panelTab === 'strategy' && strategyRecommendations.length > 0 && bannedSlugSet.size > 0 && (
         <div className="glass-panel p-4 flex flex-col gap-3 animate-slide-in">
           <div className="flex items-center gap-2">
             <Compass className="w-4 h-4 text-purple-400" />
@@ -803,7 +831,7 @@ export default function CounterPanel() {
                           ? 'bg-emerald-500/20 text-emerald-400'
                           : 'bg-blue-500/20 text-blue-400'
                       }`}>
-                        {rec.viability === 'strong' ? '★ Strong' : 'Viable'}
+                        {rec.viability === 'strong' ? 'STRONG' : 'VIABLE'}
                       </span>
                       <span className="text-[0.5rem] bg-purple-500/20 text-purple-300 px-1.5 py-0.5 rounded">
                         {rec.strategy.tag}
@@ -851,7 +879,7 @@ export default function CounterPanel() {
                 {/* Playstyle tip */}
                 <div className="mt-2 pt-2 border-t border-steel-700/30">
                   <p className="text-[0.5rem] text-steel-500 italic">
-                    💡 {rec.strategy.playstyle}
+                    {rec.strategy.playstyle}
                   </p>
                 </div>
               </div>
@@ -860,8 +888,16 @@ export default function CounterPanel() {
         </div>
       )}
 
-      {/* ══════ SYNERGY TAGS ══════ */}
-      {synergies.length > 0 && (
+      {panelTab === 'strategy' && strategyRecommendations.length === 0 && (
+        <div className="glass-panel p-6 text-center">
+          <Compass className="w-6 h-6 text-steel-600 mx-auto mb-2" />
+          <p className="text-xs text-steel-500">Ban heroes to see strategy suggestions</p>
+          <p className="text-[0.6rem] text-steel-600 mt-1">Strategies are scored based on which counters get banned</p>
+        </div>
+      )}
+
+      {/* ══════ COUNTERS TAB: Synergy Tags ══════ */}
+      {panelTab === 'counters' && synergies.length > 0 && (
         <div className="glass-panel p-4 animate-slide-in">
           <div className="flex items-center gap-2 mb-3">
             <Zap className="w-4 h-4 text-emerald-400" />
@@ -877,8 +913,8 @@ export default function CounterPanel() {
         </div>
       )}
 
-      {/* ══════ COMP WARNINGS ══════ */}
-      {warnings.length > 0 && (
+      {/* ══════ COUNTERS TAB: Comp Warnings ══════ */}
+      {panelTab === 'counters' && warnings.length > 0 && (
         <div className="glass-panel p-4 animate-slide-in">
           <div className="flex items-center gap-2 mb-3">
             <AlertTriangle className="w-4 h-4 text-amber-500" />
@@ -894,8 +930,8 @@ export default function CounterPanel() {
         </div>
       )}
 
-      {/* ══════ THREAT DETECTION ══════ */}
-      {threats.length > 0 && (
+      {/* ══════ COUNTERS TAB: Threat Detection ══════ */}
+      {panelTab === 'counters' && threats.length > 0 && (
         <div className="glass-panel p-4 animate-slide-in">
           <div className="flex items-center gap-2 mb-3">
             <AlertTriangle className="w-4 h-4 text-red-400" />

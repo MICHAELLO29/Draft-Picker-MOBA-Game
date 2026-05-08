@@ -28,7 +28,7 @@ export const MPL_STRATEGIES: DraftStrategy[] = [
     id: 'ube',
     name: 'UBE Strat',
     tag: 'Sustain',
-    emoji: '🟣',
+    emoji: '',
     description: 'Unli-Burst-Engage — tanky jungler with multiple healers/supports for unbeatable sustain.',
     playstyle: 'Group as 5, sustain through fights, outpace enemy healing with raw durability. Tank jungler dives and absorbs while supports keep the team alive.',
     slots: [
@@ -45,7 +45,7 @@ export const MPL_STRATEGIES: DraftStrategy[] = [
     id: 'pickoff',
     name: 'Pickoff Comp',
     tag: 'Burst',
-    emoji: '🗡️',
+    emoji: '',
     description: 'High burst assassination comp — pick off key targets before teamfights begin.',
     playstyle: 'Avoid full 5v5s. Use vision control and assassin rotations to catch enemies out of position. Win through numbers advantage.',
     slots: [
@@ -62,7 +62,7 @@ export const MPL_STRATEGIES: DraftStrategy[] = [
     id: 'protect-carry',
     name: 'Protect the Carry',
     tag: 'Late Game',
-    emoji: '🛡️',
+    emoji: '',
     description: 'Funnel all resources into a hyper-carry marksman with full team peeling.',
     playstyle: 'Play safe early, scale into late game. All 4 members peel and protect the marksman. Win teamfights through sustained DPS.',
     slots: [
@@ -79,7 +79,7 @@ export const MPL_STRATEGIES: DraftStrategy[] = [
     id: 'dive-comp',
     name: 'Full Dive',
     tag: 'Aggressive',
-    emoji: '⚡',
+    emoji: '',
     description: 'All-in team fight composition — dive onto the backline and burst them down.',
     playstyle: 'Force 5v5 fights. Tank engages, everyone follows. Win through superior teamfight execution and CC chains.',
     slots: [
@@ -96,7 +96,7 @@ export const MPL_STRATEGIES: DraftStrategy[] = [
     id: 'split-push',
     name: 'Split Push',
     tag: 'Macro',
-    emoji: '🔀',
+    emoji: '',
     description: 'Apply pressure across multiple lanes — force enemies to split up and pick them off.',
     playstyle: 'Avoid grouping. Use strong laners to push side lanes while the rest stall. Win through macro, tower trades, and lord control.',
     slots: [
@@ -113,7 +113,7 @@ export const MPL_STRATEGIES: DraftStrategy[] = [
     id: 'turtle-lord',
     name: 'Turtle-Lord Control',
     tag: 'Objective',
-    emoji: '🐢',
+    emoji: '',
     description: 'Objective-focused comp — dominate turtle and lord to snowball gold advantage.',
     playstyle: 'Prioritize objective fights. Take every turtle, build gold lead, force lord at power spikes. Win through resource control.',
     slots: [
@@ -130,7 +130,7 @@ export const MPL_STRATEGIES: DraftStrategy[] = [
     id: 'wombo-combo',
     name: 'Wombo Combo',
     tag: 'Teamfight',
-    emoji: '💥',
+    emoji: '',
     description: 'Chain CC + AoE ultimates for devastating teamfight wipes.',
     playstyle: 'Wait for the perfect engage. Chain 3-4 AoE ultimates for a full team wipe. Win through coordination and one perfect fight.',
     slots: [

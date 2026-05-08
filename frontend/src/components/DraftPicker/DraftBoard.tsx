@@ -1,4 +1,4 @@
-import { Undo2, Redo2, RotateCcw, Swords } from 'lucide-react';
+import { Undo2, Redo2, RotateCcw, Swords, ChevronRight } from 'lucide-react';
 import { useDraftStore } from '../../store/draftStore';
 import DraftSlot from './DraftSlot';
 import type { TeamSide } from '../../types';
@@ -49,6 +49,78 @@ function TeamColumn({ team }: { team: TeamSide }) {
           ))}
         </div>
       </div>
+    </div>
+  );
+}
+
+/** Phase banner showing current action */
+function PhaseIndicator() {
+  const currentStepIndex = useDraftStore((s) => s.currentStepIndex);
+  const draftOrder = useDraftStore((s) => s.draftOrder);
+  const slots = useDraftStore((s) => s.slots);
+
+  // Check if draft is complete
+  const allFilled = slots.every((s) => s.hero !== null);
+  if (allFilled) {
+    return (
+      <div className="flex items-center justify-center gap-2 py-2 px-4 rounded-lg bg-emerald-500/10 border border-emerald-500/30">
+        <div className="w-2 h-2 rounded-full bg-emerald-400" />
+        <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider">
+          Draft Complete
+        </span>
+      </div>
+    );
+  }
+
+  const currentStep = draftOrder[currentStepIndex];
+  if (!currentStep) return null;
+
+  const isBlue = currentStep.team === 'blue';
+  const isBan = currentStep.type === 'ban';
+  const teamLabel = isBlue ? 'Blue Team' : 'Red Team';
+  const actionLabel = isBan ? 'BAN' : 'PICK';
+  const stepNum = currentStep.slotIndex + 1;
+
+  // Count total bans/picks for phase display
+  const totalBanSteps = draftOrder.filter((s) => s.type === 'ban').length;
+  const totalPickSteps = draftOrder.filter((s) => s.type === 'pick').length;
+  const completedBans = draftOrder.filter((s, i) => s.type === 'ban' && i < currentStepIndex).length;
+  const completedPicks = draftOrder.filter((s, i) => s.type === 'pick' && i < currentStepIndex).length;
+  const phaseProgress = isBan
+    ? `Ban ${completedBans + 1}/${totalBanSteps}`
+    : `Pick ${completedPicks + 1}/${totalPickSteps}`;
+
+  const bgClass = isBan
+    ? 'bg-red-500/10 border-red-500/30'
+    : isBlue
+      ? 'bg-blue-500/10 border-blue-500/30'
+      : 'bg-red-500/10 border-red-500/30';
+
+  const textClass = isBan
+    ? 'text-red-400'
+    : isBlue ? 'text-blue-400' : 'text-red-400';
+
+  const dotClass = isBan
+    ? 'bg-red-400 animate-pulse'
+    : isBlue ? 'bg-blue-400 animate-pulse' : 'bg-red-400 animate-pulse';
+
+  return (
+    <div className={`flex items-center justify-between py-2 px-4 rounded-lg border ${bgClass}`}>
+      <div className="flex items-center gap-3">
+        <div className={`w-2.5 h-2.5 rounded-full ${dotClass}`} />
+        <div className="flex items-center gap-2">
+          <span className={`text-xs font-bold uppercase tracking-wider ${textClass}`}>
+            {teamLabel}
+          </span>
+          <ChevronRight className={`w-3 h-3 ${textClass} opacity-50`} />
+          <span className={`text-xs font-black uppercase tracking-wider ${textClass}`}>
+            {actionLabel} {stepNum}
+          </span>
+        </div>
+      </div>
+      <span className="text-[0.6rem] text-steel-500 font-medium tracking-wide">
+        {phaseProgress}
+      </span>
     </div>
   );
 }
@@ -120,6 +192,9 @@ export default function DraftBoard() {
           </button>
         </div>
       </div>
+
+      {/* Phase indicator - NOW PICKING/BANNING banner */}
+      {mode === 'ranked' && <PhaseIndicator />}
 
       {/* Draft order indicator */}
       {mode === 'ranked' && <DraftOrderBar />}
