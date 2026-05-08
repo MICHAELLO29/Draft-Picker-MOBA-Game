@@ -7,9 +7,36 @@ import { useCounters, useHeroes, useProMeta } from '../../hooks/useApi';
 import { useDraftStore } from '../../store/draftStore';
 import { detectSynergies, detectCompWarnings, detectThreats } from '../../utils/synergyRules';
 import { getTopStrategies } from '../../utils/strategyEngine';
+import { getDraftPhase, checkDamageBalance, analyzeTeamPowerSpike, detectFlexPicks, detectFormingArchetypes, getResponseBans, buildLaneMatchups } from '../../utils/draftIntelEngine';
 import type { CounterPick, Hero } from '../../types';
 import { useHeroImage } from '../../utils/imageUtils';
 import { fetchCounters } from '../../services/api';
+
+/** Reusable small hero portrait with image — used in all suggestion panels */
+function MiniHeroPortrait({ heroName, badge, badgeColor }: { heroName: string; badge?: string; badgeColor?: string }) {
+  const imageUrl = useHeroImage(heroName);
+  return (
+    <div className="flex flex-col items-center gap-0.5 min-w-[52px]">
+      <div className="relative w-9 h-9 rounded-md overflow-hidden bg-navy-700 border border-steel-700/40">
+        {imageUrl ? (
+          <img src={imageUrl} alt={heroName} className="w-full h-full object-cover" />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center text-[0.6rem] font-bold text-gold-500">
+            {heroName.charAt(0)}
+          </div>
+        )}
+        {badge && (
+          <div className={`absolute bottom-0 left-0 right-0 text-center text-[0.4rem] font-bold py-px ${badgeColor || 'bg-navy-900/80 text-steel-300'}`}>
+            {badge}
+          </div>
+        )}
+      </div>
+      <span className="text-[0.5rem] text-steel-300 text-center leading-tight max-w-[56px] truncate">
+        {heroName}
+      </span>
+    </div>
+  );
+}
 
 /** Counter pick card */
 function CounterCard({ counter }: { counter: CounterPick }) {
@@ -503,6 +530,47 @@ export default function CounterPanel() {
     [bannedSlugSet, pickedSlugSet, allHeroes]
   );
 
+  // ═══════════════════════════════════════════════════════════════
+  // DRAFT INTELLIGENCE: Phase awareness, damage balance, power spikes
+  // ═══════════════════════════════════════════════════════════════
+  const draftOrder = useDraftStore((s) => s.draftOrder);
+  const currentStepIndex = useDraftStore((s) => s.currentStepIndex);
+
+  const draftPhase = useMemo(
+    () => getDraftPhase(currentStepIndex, draftOrder),
+    [currentStepIndex, draftOrder]
+  );
+
+  const damageWarnings = useMemo(
+    () => checkDamageBalance(bluePicks),
+    [bluePicks]
+  );
+
+  const powerSpike = useMemo(
+    () => analyzeTeamPowerSpike(bluePicks),
+    [bluePicks]
+  );
+
+  const flexPicks = useMemo(
+    () => detectFlexPicks(allHeroes.filter((h) => !usedSlugs.has(h.slug))),
+    [allHeroes, usedSlugs]
+  );
+
+  const formingArchetypes = useMemo(
+    () => detectFormingArchetypes(bluePicks),
+    [bluePicks]
+  );
+
+  const responseBans = useMemo(
+    () => getResponseBans(redPicks, allHeroes, usedSlugs),
+    [redPicks, allHeroes, usedSlugs]
+  );
+
+  const laneMatchups = useMemo(
+    () => buildLaneMatchups(bluePicks, redPicks),
+    [bluePicks, redPicks]
+  );
+
   const isStale = counterData?.meta?.isStale ?? false;
 
   // ═══════════════════════════════════════════════════════════════
@@ -893,6 +961,191 @@ export default function CounterPanel() {
           <Compass className="w-6 h-6 text-steel-600 mx-auto mb-2" />
           <p className="text-xs text-steel-500">Ban heroes to see strategy suggestions</p>
           <p className="text-[0.6rem] text-steel-600 mt-1">Strategies are scored based on which counters get banned</p>
+        </div>
+      )}
+
+      {/* ══════ STRATEGY TAB: Progressive Archetype Detection ══════ */}
+      {panelTab === 'strategy' && formingArchetypes.length > 0 && (
+        <div className="glass-panel p-4 animate-slide-in">
+          <div className="flex items-center gap-2 mb-3">
+            <Compass className="w-4 h-4 text-blue-400" />
+            <h3 className="text-sm font-bold">Comp Forming</h3>
+          </div>
+          <div className="flex flex-col gap-2">
+            {formingArchetypes.slice(0, 3).map((arch) => (
+              <div key={arch.name} className={`rounded-lg border p-2.5 ${arch.progress >= 60 ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-steel-700/30 bg-navy-800/20'}`}>
+                <div className="flex items-center justify-between mb-1.5">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-white">{arch.name}</span>
+                    <span className="text-[0.5rem] bg-purple-500/20 text-purple-300 px-1.5 py-0.5 rounded">{arch.tag}</span>
+                  </div>
+                  <span className={`text-[0.5rem] font-bold ${arch.progress >= 60 ? 'text-emerald-400' : 'text-steel-400'}`}>
+                    {arch.progress}%
+                  </span>
+                </div>
+                <div className="w-full h-1.5 bg-navy-700/50 rounded-full overflow-hidden mb-1.5">
+                  <div
+                    className={`h-full rounded-full transition-all ${arch.progress >= 60 ? 'bg-emerald-500' : 'bg-steel-500'}`}
+                    style={{ width: `${arch.progress}%` }}
+                  />
+                </div>
+                <p className="text-[0.55rem] text-steel-400">{arch.description}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ══════ INTEL TAB: Response Bans ══════ */}
+      {panelTab === 'intel' && responseBans.length > 0 && !isInBanPhase && (
+        <div className="glass-panel p-4 animate-slide-in">
+          <div className="flex items-center gap-2 mb-2">
+            <Shield className="w-4 h-4 text-red-400" />
+            <h3 className="text-sm font-bold">Response Ban Targets</h3>
+          </div>
+          <p className="text-[0.6rem] text-steel-500 mb-2">Ban these to disrupt enemy's draft plan:</p>
+          <div className="flex flex-col gap-2">
+            {responseBans.map((rb) => (
+              <div key={rb.hero.slug} className={`flex gap-3 items-center p-2 rounded-lg ${rb.priority === 'high' ? 'bg-red-500/8 border border-red-500/20' : 'bg-amber-500/8 border border-amber-500/20'}`}>
+                <MiniHeroPortrait
+                  heroName={rb.hero.name}
+                  badge={rb.priority === 'high' ? 'HIGH' : 'MED'}
+                  badgeColor={rb.priority === 'high' ? 'bg-red-500/90 text-white' : 'bg-amber-500/90 text-white'}
+                />
+                <p className="text-[0.55rem] text-steel-400 flex-1 leading-relaxed">{rb.reason}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ══════ COUNTERS TAB: Draft Phase Indicator ══════ */}
+      {panelTab === 'counters' && (
+        <div className="glass-panel p-3">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[0.65rem] text-steel-400 font-bold uppercase tracking-wider">
+              Draft Phase
+            </span>
+            <span className={`text-[0.55rem] px-1.5 py-0.5 rounded font-bold ${
+              draftPhase.isEarlyPick ? 'bg-blue-500/20 text-blue-400'
+                : draftPhase.isLastPick ? 'bg-red-500/20 text-red-400'
+                : 'bg-gold-500/20 text-gold-400'
+            }`}>
+              {draftPhase.isEarlyPick ? 'EARLY PICK — Prioritize flex heroes'
+                : draftPhase.isLastPick ? 'LAST PICK — Hard counter opportunity'
+                : `PICK ${draftPhase.pickNumber} — Counter-pick window`}
+            </span>
+          </div>
+          {flexPicks.length > 0 && draftPhase.isEarlyPick && (
+            <div className="mt-2">
+              <p className="text-[0.55rem] text-steel-500 mb-1.5">Top flex picks available:</p>
+              <div className="flex gap-2 flex-wrap">
+                {flexPicks.slice(0, 5).map((fp) => (
+                  <div key={fp.hero.slug} className="flex flex-col items-center gap-0.5">
+                    <MiniHeroPortrait
+                      heroName={fp.hero.name}
+                      badge={fp.flexRoles.length + ' ROLES'}
+                      badgeColor="bg-blue-500/80 text-white"
+                    />
+                    <span className="text-[0.45rem] text-blue-400/70 max-w-[56px] text-center leading-tight">
+                      {fp.flexRoles.join('/')}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ══════ COUNTERS TAB: Damage Balance ══════ */}
+      {panelTab === 'counters' && damageWarnings.length > 0 && (
+        <div className="glass-panel p-3 animate-slide-in">
+          <div className="flex items-center gap-2 mb-2">
+            <AlertTriangle className={`w-3.5 h-3.5 ${damageWarnings[0].severity === 'critical' ? 'text-red-400' : 'text-amber-400'}`} />
+            <span className="text-[0.65rem] text-steel-400 font-bold uppercase tracking-wider">Damage Balance</span>
+          </div>
+          {damageWarnings.map((w) => (
+            <div key={w.type} className={`text-[0.6rem] px-2 py-1.5 rounded ${
+              w.severity === 'critical' ? 'bg-red-500/10 text-red-400 border border-red-500/20' : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+            }`}>
+              {w.message}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ══════ COUNTERS TAB: Power Spike ══════ */}
+      {panelTab === 'counters' && bluePicks.length >= 2 && (
+        <div className="glass-panel p-3 animate-slide-in">
+          <div className="flex items-center gap-2 mb-2">
+            <Zap className="w-3.5 h-3.5 text-gold-400" />
+            <span className="text-[0.65rem] text-steel-400 font-bold uppercase tracking-wider">
+              Team Power Curve
+            </span>
+            <span className="text-[0.5rem] bg-gold-500/15 text-gold-400 px-1.5 py-0.5 rounded ml-auto">
+              Peaks {powerSpike.peakPhase}
+            </span>
+          </div>
+          <div className="flex gap-1 items-end h-8">
+            {[
+              { label: 'Early', pct: powerSpike.early, color: 'bg-emerald-500' },
+              { label: 'Mid', pct: powerSpike.mid, color: 'bg-gold-500' },
+              { label: 'Late', pct: powerSpike.late, color: 'bg-purple-500' },
+            ].map((bar) => (
+              <div key={bar.label} className="flex-1 flex flex-col items-center gap-0.5">
+                <div className="w-full rounded-t overflow-hidden bg-navy-700/50" style={{ height: '24px' }}>
+                  <div
+                    className={`${bar.color}/60 w-full rounded-t transition-all`}
+                    style={{ height: `${Math.max(bar.pct, 5)}%`, marginTop: `${100 - Math.max(bar.pct, 5)}%` }}
+                  />
+                </div>
+                <span className="text-[0.45rem] text-steel-500">{bar.label}</span>
+              </div>
+            ))}
+          </div>
+          {powerSpike.warning && (
+            <p className="text-[0.55rem] text-amber-400/80 mt-2 leading-relaxed">
+              {powerSpike.warning}
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* ══════ COUNTERS TAB: Lane Matchup Board ══════ */}
+      {panelTab === 'counters' && laneMatchups.length > 0 && bluePicks.length >= 2 && redPicks.length >= 2 && (
+        <div className="glass-panel p-3 animate-slide-in">
+          <div className="flex items-center gap-2 mb-3">
+            <Swords className="w-3.5 h-3.5 text-gold-400" />
+            <span className="text-[0.65rem] text-steel-400 font-bold uppercase tracking-wider">Lane Matchups</span>
+          </div>
+          <div className="flex flex-col gap-2">
+            {laneMatchups.map((mu) => (
+              <div key={mu.lane} className="flex items-center gap-1.5 bg-navy-800/30 rounded-lg px-2 py-1.5">
+                <span className="text-[0.55rem] text-steel-500 font-bold min-w-[32px]">{mu.lane}</span>
+                <div className="flex-1 flex items-center justify-center gap-1.5">
+                  {mu.yourHero ? (
+                    <MiniHeroPortrait heroName={mu.yourHero.name} />
+                  ) : (
+                    <div className="w-9 h-9 rounded-md bg-navy-700 border border-steel-700/30 flex items-center justify-center text-[0.5rem] text-steel-600">?</div>
+                  )}
+                  <span className={`text-[0.5rem] px-1.5 py-0.5 rounded font-bold min-w-[36px] text-center ${
+                    mu.advantage === 'advantage' ? 'bg-emerald-500/20 text-emerald-400'
+                      : mu.advantage === 'disadvantage' ? 'bg-red-500/20 text-red-400'
+                      : mu.advantage === 'even' ? 'bg-gold-500/20 text-gold-400'
+                      : 'bg-steel-700/30 text-steel-500'
+                  }`}>
+                    {mu.advantage === 'advantage' ? 'WIN' : mu.advantage === 'disadvantage' ? 'LOSE' : mu.advantage === 'even' ? 'EVEN' : 'VS'}
+                  </span>
+                  {mu.enemyHero ? (
+                    <MiniHeroPortrait heroName={mu.enemyHero.name} />
+                  ) : (
+                    <div className="w-9 h-9 rounded-md bg-navy-700 border border-red-500/20 flex items-center justify-center text-[0.5rem] text-steel-600">?</div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 

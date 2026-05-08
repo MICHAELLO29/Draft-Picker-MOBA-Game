@@ -1,4 +1,5 @@
-import { Undo2, Redo2, RotateCcw, Swords, ChevronRight } from 'lucide-react';
+import { useState } from 'react';
+import { Undo2, Redo2, RotateCcw, Swords, ChevronRight, Save, FolderOpen, Trash2, X } from 'lucide-react';
 import { useDraftStore } from '../../store/draftStore';
 import DraftSlot from './DraftSlot';
 import type { TeamSide } from '../../types';
@@ -155,7 +156,11 @@ function DraftOrderBar() {
 
 /** Main draft board layout */
 export default function DraftBoard() {
-  const { undo, redo, reset, mode, setMode, historyIndex, history } = useDraftStore();
+  const { undo, redo, reset, mode, setMode, historyIndex, history, saveDraft, loadDraft, getSavedDrafts, deleteSavedDraft } = useDraftStore();
+  const [showSaveDialog, setShowSaveDialog] = useState(false);
+  const [showLoadDialog, setShowLoadDialog] = useState(false);
+  const [saveName, setSaveName] = useState('');
+  const [saveMsg, setSaveMsg] = useState('');
 
   return (
     <div className="flex flex-col gap-4" id="draft-board">
@@ -190,8 +195,80 @@ export default function DraftBoard() {
           <button className="btn btn-danger btn-sm" onClick={reset} title="Reset Draft">
             <RotateCcw className="w-4 h-4" />
           </button>
+          <button className="btn btn-ghost btn-sm" onClick={() => setShowSaveDialog(true)} title="Save Draft">
+            <Save className="w-4 h-4" />
+          </button>
+          <button className="btn btn-ghost btn-sm" onClick={() => setShowLoadDialog(true)} title="Load Draft">
+            <FolderOpen className="w-4 h-4" />
+          </button>
         </div>
       </div>
+
+      {/* Save dialog */}
+      {showSaveDialog && (
+        <div className="glass-panel p-3 flex items-center gap-2">
+          <input
+            type="text"
+            value={saveName}
+            onChange={(e) => setSaveName(e.target.value)}
+            placeholder="Draft name..."
+            className="flex-1 bg-navy-800 border border-steel-700/50 rounded px-2 py-1 text-xs text-white placeholder-steel-500 focus:outline-none focus:border-gold-500/50"
+            autoFocus
+          />
+          <button
+            className="btn btn-sm text-xs bg-gold-500/20 text-gold-400 px-3 py-1 rounded hover:bg-gold-500/30"
+            onClick={() => {
+              if (saveName.trim()) {
+                saveDraft(saveName.trim());
+                setSaveMsg('Saved');
+                setTimeout(() => { setSaveMsg(''); setShowSaveDialog(false); setSaveName(''); }, 1000);
+              }
+            }}
+          >
+            {saveMsg || 'Save'}
+          </button>
+          <button className="btn btn-ghost btn-sm" onClick={() => setShowSaveDialog(false)}>
+            <X className="w-3 h-3" />
+          </button>
+        </div>
+      )}
+
+      {/* Load dialog */}
+      {showLoadDialog && (
+        <div className="glass-panel p-3">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-bold text-steel-400">Saved Drafts</span>
+            <button className="btn btn-ghost btn-sm" onClick={() => setShowLoadDialog(false)}>
+              <X className="w-3 h-3" />
+            </button>
+          </div>
+          {getSavedDrafts().length === 0 ? (
+            <p className="text-xs text-steel-500 text-center py-2">No saved drafts</p>
+          ) : (
+            <div className="flex flex-col gap-1">
+              {getSavedDrafts().map((name) => (
+                <div key={name} className="flex items-center justify-between bg-navy-800/50 rounded px-2 py-1.5">
+                  <span className="text-xs text-white">{name}</span>
+                  <div className="flex gap-1">
+                    <button
+                      className="text-[0.6rem] bg-blue-500/20 text-blue-400 px-2 py-0.5 rounded hover:bg-blue-500/30"
+                      onClick={() => { loadDraft(name); setShowLoadDialog(false); }}
+                    >
+                      Load
+                    </button>
+                    <button
+                      className="text-[0.6rem] bg-red-500/20 text-red-400 px-1.5 py-0.5 rounded hover:bg-red-500/30"
+                      onClick={() => deleteSavedDraft(name)}
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Phase indicator - NOW PICKING/BANNING banner */}
       {mode === 'ranked' && <PhaseIndicator />}

@@ -90,6 +90,10 @@ interface DraftState {
   setActiveTarget: (id: string | null) => void;
   setPreviewHero: (hero: Hero | null) => void;
   setAnalysisHero: (hero: Hero | null, team: TeamSide | null) => void;
+  saveDraft: (name: string) => void;
+  loadDraft: (name: string) => boolean;
+  getSavedDrafts: () => string[];
+  deleteSavedDraft: (name: string) => void;
 }
 
 export const useDraftStore = create<DraftState>((set, get) => ({
@@ -301,5 +305,53 @@ export const useDraftStore = create<DraftState>((set, get) => ({
   setMode: (mode) => {
     set({ mode });
     get().reset();
+  },
+
+  saveDraft: (name: string) => {
+    const state = get();
+    const data = {
+      slots: state.slots,
+      currentStepIndex: state.currentStepIndex,
+      mode: state.mode,
+      savedAt: new Date().toISOString(),
+    };
+    try {
+      const existing = JSON.parse(localStorage.getItem('mlbb-drafts') || '{}');
+      existing[name] = data;
+      localStorage.setItem('mlbb-drafts', JSON.stringify(existing));
+    } catch { /* ignore storage errors */ }
+  },
+
+  loadDraft: (name: string) => {
+    try {
+      const existing = JSON.parse(localStorage.getItem('mlbb-drafts') || '{}');
+      const data = existing[name];
+      if (!data) return false;
+      set({
+        slots: data.slots,
+        currentStepIndex: data.currentStepIndex,
+        mode: data.mode,
+        history: [],
+        historyIndex: -1,
+        analysisHero: null,
+        analysisTeam: null,
+      });
+      return true;
+    } catch { return false; }
+  },
+
+  getSavedDrafts: () => {
+    try {
+      const existing = JSON.parse(localStorage.getItem('mlbb-drafts') || '{}');
+      return Object.keys(existing);
+    } catch { return []; }
+  },
+
+  deleteSavedDraft: (name: string) => {
+    try {
+      const existing = JSON.parse(localStorage.getItem('mlbb-drafts') || '{}');
+      delete existing[name];
+      localStorage.setItem('mlbb-drafts', JSON.stringify(existing));
+    } catch { /* ignore */ }
   },
 }));
