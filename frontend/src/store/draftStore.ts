@@ -293,6 +293,8 @@ export const useDraftStore = create<DraftState>((set, get) => ({
       history: [],
       historyIndex: -1,
       activeTargetId: null,
+      analysisHero: null,
+      analysisTeam: null,
     });
   },
 

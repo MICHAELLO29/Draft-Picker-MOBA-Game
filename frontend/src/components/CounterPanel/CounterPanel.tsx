@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react';
 import { useQueries } from '@tanstack/react-query';
-import { Shield, AlertTriangle, Zap, Info, Swords, Trophy } from 'lucide-react';
+import { Shield, AlertTriangle, Zap, Info, Swords, Trophy, Compass } from 'lucide-react';
 import { useCounters, useHeroes, useProMeta } from '../../hooks/useApi';
 import { useDraftStore } from '../../store/draftStore';
 import { detectSynergies, detectCompWarnings, detectThreats } from '../../utils/synergyRules';
+import { getTopStrategies } from '../../utils/strategyEngine';
 import type { CounterPick, Hero } from '../../types';
 import { useHeroImage } from '../../utils/imageUtils';
 import { fetchCounters } from '../../services/api';
@@ -391,13 +392,16 @@ export default function CounterPanel() {
     return results.sort((a, b) => b.score - a.score).slice(0, 5);
   }, [banCounterQueries, bannedHeroes, usedSlugs, proMeta, allHeroes]);
 
-  // Pro synergy picks — pro meta heroes that complement the current blue team
-  // Instead of showing win-rate counters, show pro picks that fill team gaps
+  // Pro synergy picks — pro meta heroes that complement the CURRENT TEAM's picks
+  // Uses currentStep.team to determine which team is picking
+  const currentTeam = currentStep?.team ?? 'blue';
+  const currentTeamPicks = currentTeam === 'blue' ? bluePicks : redPicks;
+
   const proSynergyPicks = useMemo(() => {
-    if (bluePicks.length === 0) return [];
+    if (currentTeamPicks.length === 0) return [];
 
     // Analyze current team roles
-    const teamRoles = new Set(bluePicks.flatMap((h) => h.roles));
+    const teamRoles = new Set(currentTeamPicks.flatMap((h) => h.roles));
     const needsRoles: string[] = [];
     if (!teamRoles.has('Tank')) needsRoles.push('Tank');
     if (!teamRoles.has('Mage')) needsRoles.push('Mage');
@@ -474,12 +478,28 @@ export default function CounterPanel() {
     }
 
     return results.sort((a, b) => b.score - a.score).slice(0, 3);
-  }, [bluePicks, allHeroes, usedSlugs, proMeta]);
+  }, [currentTeamPicks, allHeroes, usedSlugs, proMeta]);
 
   // Detect synergies for blue team
   const synergies = useMemo(() => detectSynergies(bluePicks), [bluePicks]);
   const warnings = useMemo(() => detectCompWarnings(bluePicks), [bluePicks]);
   const threats = useMemo(() => detectThreats(redPicks), [redPicks]);
+
+  // ═══════════════════════════════════════════════════════════════
+  // STRATEGY RECOMMENDATIONS: Suggest team comps based on bans
+  // ═══════════════════════════════════════════════════════════════
+  const bannedSlugSet = useMemo(() => new Set(bannedSlugs), [bannedSlugs]);
+
+  const pickedSlugSet = useMemo(() => {
+    const slugs = new Set<string>();
+    slots.filter((s) => s.type === 'pick' && s.hero).forEach((s) => slugs.add(s.hero!.slug));
+    return slugs;
+  }, [slots]);
+
+  const strategyRecommendations = useMemo(
+    () => getTopStrategies(bannedSlugSet, pickedSlugSet, allHeroes, 3),
+    [bannedSlugSet, pickedSlugSet, allHeroes]
+  );
 
   const isStale = counterData?.meta?.isStale ?? false;
 
@@ -613,32 +633,7 @@ export default function CounterPanel() {
               )}
             </div>
 
-            {/* Pro Synergy Picks — show alongside threat analysis */}
-            {proSynergyPicks.length > 0 && (
-              <div className="space-y-2">
-                <div className="flex items-center gap-2 mb-1">
-                  <Trophy className="w-3.5 h-3.5 text-gold-500" />
-                  <p className="text-[0.65rem] text-steel-400 font-bold uppercase tracking-wider">
-                    Pro Picks to Complement Your Team
-                  </p>
-                </div>
-                {proSynergyPicks.map((entry) => (
-                  <div key={entry.hero.slug}>
-                    <MetaBanCard hero={entry.hero} />
-                    <div className="flex items-center gap-1 mt-0.5 ml-[52px] flex-wrap">
-                      {entry.isPro && (
-                        <span className="text-[0.55rem] bg-gold-500/20 text-gold-400 px-1.5 py-0.5 rounded font-bold">
-                          🏆 Pro
-                        </span>
-                      )}
-                      <span className="text-[0.55rem] bg-blue-500/20 text-blue-300 px-1.5 py-0.5 rounded">
-                        {entry.fillsRole}
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
+            {/* Duplicate removed — Pro Synergy Picks shown in dedicated panel below */}
           </div>
         )}
 
@@ -744,14 +739,14 @@ export default function CounterPanel() {
       </div>
 
       {/* ══════ PRO SYNERGY PICKS PANEL ══════ */}
-      {bluePicks.length > 0 && proSynergyPicks.length > 0 && !isInBanPhase && (
+      {currentTeamPicks.length > 0 && proSynergyPicks.length > 0 && !isInBanPhase && (
         <div className="glass-panel p-4 flex flex-col gap-3 animate-slide-in">
           <div className="flex items-center gap-2">
             <Trophy className="w-4 h-4 text-gold-400" />
-            <h3 className="text-sm font-bold">Pro Synergy Picks</h3>
+            <h3 className="text-sm font-bold">Pro Synergy Picks ({currentTeam === 'blue' ? 'Blue' : 'Red'} Team)</h3>
           </div>
           <p className="text-[0.65rem] text-steel-500">
-            Pro meta heroes that complement your {bluePicks.map(h => h.name).join(', ')}:
+            Pro meta heroes that complement {currentTeamPicks.map(h => h.name).join(', ')}:
           </p>
           {proSynergyPicks.map((entry) => (
             <div key={entry.hero.slug}>
@@ -773,6 +768,95 @@ export default function CounterPanel() {
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* ══════ STRATEGY SUGGESTIONS PANEL ══════ */}
+      {strategyRecommendations.length > 0 && bannedSlugSet.size > 0 && (
+        <div className="glass-panel p-4 flex flex-col gap-3 animate-slide-in">
+          <div className="flex items-center gap-2">
+            <Compass className="w-4 h-4 text-purple-400" />
+            <h3 className="text-sm font-bold">Draft Strategy Suggestions</h3>
+          </div>
+          <p className="text-[0.6rem] text-steel-500">
+            Team compositions that benefit from current bans:
+          </p>
+          <div className="flex flex-col gap-3">
+            {strategyRecommendations.map((rec) => (
+              <div
+                key={rec.strategy.id}
+                className={`rounded-lg border p-3 transition-all hover:scale-[1.01] ${
+                  rec.viability === 'strong'
+                    ? 'border-emerald-500/40 bg-emerald-500/5'
+                    : 'border-steel-700/40 bg-navy-800/30'
+                }`}
+              >
+                <div className="flex items-center gap-2 mb-1.5">
+                  <span className="text-lg">{rec.strategy.emoji}</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-white truncate">
+                        {rec.strategy.name}
+                      </span>
+                      <span className={`text-[0.5rem] px-1.5 py-0.5 rounded font-bold uppercase ${
+                        rec.viability === 'strong'
+                          ? 'bg-emerald-500/20 text-emerald-400'
+                          : 'bg-blue-500/20 text-blue-400'
+                      }`}>
+                        {rec.viability === 'strong' ? '★ Strong' : 'Viable'}
+                      </span>
+                      <span className="text-[0.5rem] bg-purple-500/20 text-purple-300 px-1.5 py-0.5 rounded">
+                        {rec.strategy.tag}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <p className="text-[0.6rem] text-steel-400 mb-2 leading-relaxed">
+                  {rec.strategy.description}
+                </p>
+
+                {/* Why this strategy is recommended */}
+                <div className="flex items-center gap-1 mb-2">
+                  <Info className="w-3 h-3 text-emerald-400 flex-shrink-0" />
+                  <span className="text-[0.55rem] text-emerald-400/90">{rec.reason}</span>
+                </div>
+
+                {/* Suggested hero slots */}
+                <div className="flex flex-col gap-1">
+                  {rec.availableHeroes
+                    .filter((sf) => sf.available.length > 0)
+                    .slice(0, 4)
+                    .map((sf) => (
+                    <div key={sf.role} className="flex items-center gap-1.5">
+                      <span className={`text-[0.5rem] px-1.5 py-0.5 rounded font-medium min-w-[72px] text-center ${
+                        sf.required ? 'bg-gold-500/20 text-gold-400' : 'bg-steel-700/30 text-steel-400'
+                      }`}>
+                        {sf.role}
+                      </span>
+                      <div className="flex gap-1 flex-wrap">
+                        {sf.available.slice(0, 3).map((slug) => (
+                          <span key={slug} className="text-[0.5rem] text-steel-300 bg-navy-700/50 px-1 py-0.5 rounded">
+                            {slug.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())}
+                          </span>
+                        ))}
+                        {sf.available.length > 3 && (
+                          <span className="text-[0.5rem] text-steel-500">+{sf.available.length - 3}</span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Playstyle tip */}
+                <div className="mt-2 pt-2 border-t border-steel-700/30">
+                  <p className="text-[0.5rem] text-steel-500 italic">
+                    💡 {rec.strategy.playstyle}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
