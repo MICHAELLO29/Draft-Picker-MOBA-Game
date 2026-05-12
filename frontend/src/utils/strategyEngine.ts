@@ -47,12 +47,15 @@ export function evaluateStrategies(
   }
 
   const results: StrategyRecommendation[] = [];
+  // Build a set of slugs that actually exist in the hero pool
+  const poolSlugs = new Set(allHeroes.map((h) => h.slug));
 
   for (const strategy of MPL_STRATEGIES) {
     // 1. Check slot viability — can we still fill required roles?
+    //    Only count heroes that exist in the pool AND are not banned/picked
     const slotFills: StrategySlotFill[] = strategy.slots.map((slot) => ({
       role: slot.role,
-      available: slot.heroSlugs.filter((s) => !usedSlugs.has(s)),
+      available: slot.heroSlugs.filter((s) => !usedSlugs.has(s) && poolSlugs.has(s)),
       required: slot.required,
     }));
 

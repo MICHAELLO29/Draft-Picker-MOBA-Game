@@ -488,6 +488,26 @@ export interface LaneMatchup {
   reason: string;
 }
 
+/** Infer lane assignments from hero roles when intel data is missing */
+function inferLanesFromRoles(hero: Hero): string[] {
+  const roles = hero.roles ?? [];
+  const lanes: string[] = [];
+
+  for (const role of roles) {
+    const r = role.toLowerCase();
+    if (r === 'fighter' && !lanes.includes('EXP')) lanes.push('EXP');
+    if (r === 'mage' && !lanes.includes('MID')) lanes.push('MID');
+    if (r === 'marksman' && !lanes.includes('GOLD')) lanes.push('GOLD');
+    if (r === 'assassin' && !lanes.includes('JG')) lanes.push('JG');
+    if ((r === 'tank' || r === 'support') && !lanes.includes('ROAM')) lanes.push('ROAM');
+  }
+
+  // Fallback if no roles matched any lane
+  if (lanes.length === 0) lanes.push('ROAM');
+
+  return lanes;
+}
+
 /** Build lane matchup assignments */
 export function buildLaneMatchups(
   bluePicks: Hero[],
@@ -496,26 +516,37 @@ export function buildLaneMatchups(
   const lanes = ['EXP', 'MID', 'GOLD', 'JG', 'ROAM'];
   const matchups: LaneMatchup[] = [];
 
-  // Assign heroes to lanes based on intel
+  // Assign heroes to lanes based on intel, with role-based fallback
   const assignToLane = (heroes: Hero[]): Map<string, Hero> => {
     const assigned = new Map<string, Hero>();
     const unassigned = [...heroes];
 
-    // First pass: heroes with only one lane assignment
+    // First pass: heroes with only one lane assignment (high confidence)
     for (const hero of [...unassigned]) {
       const intel = getHeroIntel(hero.slug);
-      if (!intel) continue;
-      if (intel.laneAssignment.length === 1 && !assigned.has(intel.laneAssignment[0])) {
-        assigned.set(intel.laneAssignment[0], hero);
+      const heroLanes = intel ? intel.laneAssignment : inferLanesFromRoles(hero);
+      if (heroLanes.length === 1 && !assigned.has(heroLanes[0])) {
+        assigned.set(heroLanes[0], hero);
         unassigned.splice(unassigned.indexOf(hero), 1);
       }
     }
 
-    // Second pass: fill remaining lanes
+    // Second pass: fill remaining lanes with multi-lane heroes
     for (const hero of [...unassigned]) {
       const intel = getHeroIntel(hero.slug);
-      if (!intel) continue;
-      for (const lane of intel.laneAssignment) {
+      const heroLanes = intel ? intel.laneAssignment : inferLanesFromRoles(hero);
+      for (const lane of heroLanes) {
+        if (!assigned.has(lane)) {
+          assigned.set(lane, hero);
+          unassigned.splice(unassigned.indexOf(hero), 1);
+          break;
+        }
+      }
+    }
+
+    // Third pass: force-assign any remaining heroes to any open lane
+    for (const hero of [...unassigned]) {
+      for (const lane of lanes) {
         if (!assigned.has(lane)) {
           assigned.set(lane, hero);
           unassigned.splice(unassigned.indexOf(hero), 1);
@@ -541,32 +572,34 @@ export function buildLaneMatchups(
       const yourIntel = getHeroIntel(yours.slug);
       const theirIntel = getHeroIntel(theirs.slug);
 
-      if (yourIntel && theirIntel) {
-        // Compare power spikes for lane phase
-        if (yourIntel.powerSpike === 'Early' && theirIntel.powerSpike === 'Late') {
-          advantage = 'advantage';
-          reason = `${yours.name} dominates early — pressure before ${theirs.name} scales`;
-        } else if (yourIntel.powerSpike === 'Late' && theirIntel.powerSpike === 'Early') {
-          advantage = 'disadvantage';
-          reason = `${theirs.name} has early pressure — play safe until ${yours.name} scales`;
-        } else {
-          advantage = 'even';
-          reason = `Similar power timing — skill matchup`;
-        }
+      const yourSpike = yourIntel?.powerSpike ?? 'Mid';
+      const theirSpike = theirIntel?.powerSpike ?? 'Mid';
+
+      if (yourSpike === 'Early' && theirSpike === 'Late') {
+        advantage = 'advantage';
+        reason = `${yours.name} dominates early — pressure before ${theirs.name} scales`;
+      } else if (yourSpike === 'Late' && theirSpike === 'Early') {
+        advantage = 'disadvantage';
+        reason = `${theirs.name} has early pressure — play safe until ${yours.name} scales`;
+      } else if (yourSpike === theirSpike) {
+        advantage = 'even';
+        reason = `Similar power timing — skill matchup`;
       } else {
-        advantage = 'unknown';
-        reason = 'No matchup data available';
+        // Mid vs Early or Mid vs Late — slight differences
+        const spikeOrder = { 'Early': 0, 'Mid': 1, 'Late': 2 };
+        const diff = spikeOrder[yourSpike] - spikeOrder[theirSpike];
+        if (diff < 0) {
+          advantage = 'advantage';
+          reason = `${yours.name} peaks earlier — apply lane pressure`;
+        } else {
+          advantage = 'disadvantage';
+          reason = `${theirs.name} peaks earlier — survive the lane phase`;
+        }
       }
-    } else if (yours && !theirs) {
-      advantage = 'advantage';
-      reason = 'Enemy lane not yet assigned';
-    } else if (!yours && theirs) {
-      advantage = 'disadvantage';
-      reason = 'Your lane not yet assigned';
     }
 
     matchups.push({ lane, yourHero: yours, enemyHero: theirs, advantage, reason });
   }
 
-  return matchups.filter((m) => m.yourHero || m.enemyHero);
+  return matchups.filter((m) => m.yourHero && m.enemyHero);
 }

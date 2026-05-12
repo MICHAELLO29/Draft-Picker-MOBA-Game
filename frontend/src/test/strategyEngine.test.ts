@@ -166,7 +166,7 @@ describe('Strategy Engine', () => {
       const ube = results.find((r) => r.strategy.id === 'ube');
       expect(ube).toBeDefined();
 
-      const healerSlot = ube!.availableHeroes.find((s) => s.role === 'Healer / Support');
+      const healerSlot = ube!.availableHeroes.find((s) => s.role === 'Healer');
       expect(healerSlot).toBeDefined();
       expect(healerSlot!.available.length).toBeGreaterThan(0);
       expect(healerSlot!.available).toContain('estes');

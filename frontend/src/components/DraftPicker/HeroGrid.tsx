@@ -1,12 +1,12 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, memo, useCallback } from 'react';
 import { useDraggable } from '@dnd-kit/core';
 import { Search } from 'lucide-react';
 import type { Hero } from '../../types';
 import { useDraftStore } from '../../store/draftStore';
 import { useHeroImage } from '../../utils/imageUtils';
 
-/** Single draggable hero card */
-function HeroCard({ hero, isDimmed }: { hero: Hero; isDimmed: boolean }) {
+/** Single draggable hero card — memoized to prevent 132 re-renders on filter change */
+const HeroCard = memo(function HeroCard({ hero, isDimmed }: { hero: Hero; isDimmed: boolean }) {
   const [imgError, setImgError] = useState(false);
   const heroImageUrl = useHeroImage(hero.name);
   const setPreviewHero = useDraftStore((s) => s.setPreviewHero);
@@ -25,18 +25,23 @@ function HeroCard({ hero, isDimmed }: { hero: Hero; isDimmed: boolean }) {
     ? hero.winRate >= 52 ? 'wr-high' : hero.winRate >= 48 ? 'wr-mid' : 'wr-low'
     : '';
 
+  const handleClick = useCallback(() => {
+    if (!isDimmed) setPreviewHero(hero);
+  }, [isDimmed, hero, setPreviewHero]);
+
   return (
     <div
       ref={setNodeRef}
       {...attributes}
       {...listeners}
       style={style}
-      className={`hero-card flex flex-col items-center justify-center p-2 min-h-[110px] w-full ${isDimmed ? 'dimmed' : ''} ${isDragging ? 'opacity-60' : ''}`}
-      onClick={() => !isDimmed && setPreviewHero(hero)}
+      className={`hero-card flex flex-col items-center justify-center p-2 min-h-[110px] w-full ${isDimmed ? 'dimmed' : ''} ${isDragging ? 'opacity-60' : ''} ${!isDimmed && hero.winRate && hero.winRate >= 53 ? 'hot-pick' : ''}`}
+      data-role={hero.roles[0]}
+      onClick={handleClick}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
-          if (!isDimmed) setPreviewHero(hero);
+          handleClick();
         }
       }}
       role="button"
@@ -85,7 +90,7 @@ function HeroCard({ hero, isDimmed }: { hero: Hero; isDimmed: boolean }) {
       )}
     </div>
   );
-}
+});
 
 /** Hero roster grid with search, filter, and sort */
 export default function HeroGrid({ heroes }: { heroes: Hero[] }) {

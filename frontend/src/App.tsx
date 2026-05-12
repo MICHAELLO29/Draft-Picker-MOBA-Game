@@ -185,7 +185,7 @@ function DraftView({ setActiveTab }: { setActiveTab: (tab: TabId) => void }) {
         </div>
 
         {/* Side Panel */}
-        <div className="side-panel">
+        <div className="side-panel scroll-fade">
           <CounterPanel />
         </div>
       </div>

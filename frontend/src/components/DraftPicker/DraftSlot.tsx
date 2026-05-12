@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import { X } from 'lucide-react';
 import type { DraftSlot as DraftSlotType } from '../../types';
@@ -21,6 +21,19 @@ export default function DraftSlot({ slot, isActive }: Props) {
 
   // Reset imgError when the hero in this slot changes
   useEffect(() => { setImgError(false); }, [slot.hero?.name]);
+
+  // Design Spell: Lock-in flash — briefly add 'just-filled' class
+  const justFilledRef = useRef(false);
+  const [justFilled, setJustFilled] = useState(false);
+  useEffect(() => {
+    if (slot.hero && !justFilledRef.current) {
+      justFilledRef.current = true;
+      setJustFilled(true);
+      const timer = setTimeout(() => setJustFilled(false), 700);
+      return () => clearTimeout(timer);
+    }
+    if (!slot.hero) justFilledRef.current = false;
+  }, [slot.hero]);
   
   const { setNodeRef, isOver } = useDroppable({
     id: slot.id,
@@ -35,7 +48,7 @@ export default function DraftSlot({ slot, isActive }: Props) {
   return (
     <div
       ref={setNodeRef}
-      className={`draft-slot ${isActive ? 'active' : ''} ${isFilled ? 'filled cursor-pointer' : ''} ${isBan ? 'ban-slot' : ''} ${isOver ? 'ring-2 ring-gold-400' : ''} ${isTargeted ? 'ring-2 ring-blue-400 shadow-[0_0_15px_rgba(96,165,250,0.5)]' : ''} ${isAnalyzed ? 'ring-2 ring-gold-500 shadow-[0_0_15px_rgba(234,179,8,0.5)]' : ''}`}
+      className={`draft-slot ${isActive ? 'active' : ''} ${isFilled ? 'filled cursor-pointer' : ''} ${isBan ? 'ban-slot' : ''} ${justFilled ? 'just-filled' : ''} ${isOver ? 'ring-2 ring-gold-400' : ''} ${isTargeted ? 'ring-2 ring-blue-400 shadow-[0_0_15px_rgba(96,165,250,0.5)]' : ''} ${isAnalyzed ? 'ring-2 ring-gold-500 shadow-[0_0_15px_rgba(234,179,8,0.5)]' : ''}`}
       role="button"
       aria-label={`${slot.team} ${slot.type} slot ${slot.index + 1}${slot.hero ? `: ${slot.hero.name}` : ''}`}
       id={`slot-${slot.id}`}
@@ -81,6 +94,8 @@ export default function DraftSlot({ slot, isActive }: Props) {
           >
             <X className="w-3 h-3 text-white" />
           </button>
+          {/* Design Spell: Ban Slash overlay */}
+          {isBan && <div className="ban-slash" />}
         </div>
       ) : (
         <span className="text-xs text-steel-500 font-semibold">
